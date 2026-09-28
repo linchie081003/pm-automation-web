@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, getErrorMessage, getToken } from "../api";
+import { api, getErrorMessage } from "../api";
 import { formatDisplayDate } from "../lib/formatDate";
 
 const WEEKDAY_LABELS = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
@@ -171,13 +171,12 @@ export default function WorkCalendarPage() {
     setMsg("");
     const fd = new FormData();
     fd.append("file", importFile);
-    const token = getToken();
     try {
       const res = await fetch(
         `/api/integrations/work-calendar/import-holidays?mode=${importMode}`,
         {
           method: "POST",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
           body: fd,
         },
       );

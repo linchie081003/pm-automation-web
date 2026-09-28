@@ -1,6 +1,9 @@
 import { isMutationMethod, mutationBusyEnd, mutationBusyStart } from "./lib/mutationBusy";
 
+/** Legacy key — cleared on load; session uses HttpOnly cookies via Vite proxy. */
 const TOKEN_KEY = "pdc_access_token";
+
+const defaultFetchInit: RequestInit = { credentials: "include" };
 
 export function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -86,12 +89,20 @@ async function readErrorBody(res: Response): Promise<unknown> {
 }
 
 export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  return null;
 }
 
-export function setToken(token: string | null) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+/** @deprecated Session token is HttpOnly cookie; clears legacy localStorage only. */
+export function setToken(_token: string | null) {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearLegacyTokenStorage() {
+  setToken(null);
 }
 
 export async function api<T>(
@@ -102,15 +113,16 @@ export async function api<T>(
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
-  const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-
   const trackBusy = isMutationMethod(options.method);
   if (trackBusy) mutationBusyStart();
   try {
     let res: Response;
     try {
-      res = await fetch(`/api${path}`, { ...options, headers });
+      res = await fetch(`/api${path}`, {
+        ...defaultFetchInit,
+        ...options,
+        headers,
+      });
     } catch {
       throw new Error(
         `[Jaringan] Tidak dapat menghubungi API. Pastikan backend (uvicorn) dan Vite proxy jalan. (${path})`,
@@ -143,15 +155,11 @@ export async function api<T>(
 export async function fetchFileBlob(
   apiPath: string,
 ): Promise<{ blob: Blob; filename: string }> {
-  const token = getToken();
-  const headers: Record<string, string> = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
-
   mutationBusyStart();
   try {
     let res: Response;
     try {
-      res = await fetch(`/api${apiPath}`, { headers });
+      res = await fetch(`/api${apiPath}`, { ...defaultFetchInit });
     } catch {
       throw new Error(`[Jaringan] Tidak dapat mengambil file. (${apiPath})`);
     }
@@ -193,15 +201,11 @@ export async function previewFile(apiPath: string): Promise<void> {
 
 /** Download binary file with JWT (plain anchor cannot send Authorization). */
 export async function downloadFile(apiPath: string, filename?: string): Promise<void> {
-  const token = getToken();
-  const headers: Record<string, string> = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
-
   mutationBusyStart();
   try {
     let res: Response;
     try {
-      res = await fetch(`/api${apiPath}`, { headers });
+      res = await fetch(`/api${apiPath}`, { ...defaultFetchInit });
     } catch {
       throw new Error(`[Jaringan] Unduh gagal — periksa koneksi API. (${apiPath})`);
     }

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { api, getToken, setToken } from "./api";
+import { api, clearLegacyTokenStorage, setToken } from "./api";
 
 export type Me = {
   id: number;
@@ -26,11 +26,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const refresh = async () => {
-    if (!getToken()) {
-      setUser(null);
-      setLoading(false);
-      return;
-    }
     try {
       const me = await api<Me>("/auth/me");
       setUser(me);
@@ -42,19 +37,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    clearLegacyTokenStorage();
     refresh();
   }, []);
 
   const login = async (email: string, password: string) => {
-    const tokens = await api<{ access_token: string }>("/auth/login", {
+    await api<{ ok: boolean }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
-    setToken(tokens.access_token);
     await refresh();
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await api<{ ok: boolean }>("/auth/logout", { method: "POST" });
+    } catch {
+      /* cookie may already be gone */
+    }
     setToken(null);
     setUser(null);
   };

@@ -14,7 +14,6 @@ import {
   downloadFile,
   formatApiError,
   getErrorMessage,
-  getToken,
   previewFile,
 } from "../api";
 import { useAuth } from "../auth";
@@ -5787,12 +5786,11 @@ function DocumentsTab({
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const token = getToken();
       const res = await fetch(
         `/api/projects/${projectId}/documents?doc_type=${encodeURIComponent(docType)}`,
         {
           method: "POST",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
           body: fd,
         },
       );
