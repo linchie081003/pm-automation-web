@@ -1,6 +1,6 @@
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 
-import { RequireAuth, useAuth } from "./auth";
+import { RequireAuth, RequirePerm, useAuth } from "./auth";
 
 import LoginPage from "./pages/LoginPage";
 
@@ -22,6 +22,8 @@ import ConfigHubPage from "./pages/ConfigHubPage";
 import TimelineTemplatesPage from "./pages/TimelineTemplatesPage";
 import WorkCalendarPage from "./pages/WorkCalendarPage";
 import ClickUpIntegrationPage from "./pages/ClickUpIntegrationPage";
+import GoogleDriveIntegrationPage from "./pages/GoogleDriveIntegrationPage";
+import ClickUpStatusMappingPage from "./pages/ClickUpStatusMappingPage";
 import { GlobalProgressBar } from "./components/GlobalProgressBar";
 
 
@@ -47,7 +49,8 @@ function Shell({ children }: { children: React.ReactNode }) {
     can("roles.read") ||
     can("health.config.write") ||
     can("projects.write") ||
-    can("integrations.clickup.configure");
+    can("integrations.clickup.configure") ||
+    can("integrations.google_drive.configure");
 
   return (
 
@@ -167,6 +170,15 @@ export default function App() {
                 <Route path="/config/timeline-templates" element={<TimelineTemplatesPage />} />
                 <Route path="/config/work-calendar" element={<WorkCalendarPage />} />
                 <Route path="/config/clickup" element={<ClickUpIntegrationPage />} />
+                <Route path="/config/clickup-status" element={<ClickUpStatusMappingPage />} />
+                <Route
+                  path="/config/google-drive"
+                  element={
+                    <RequirePerm perm="integrations.google_drive.configure">
+                      <GoogleDriveIntegrationPage />
+                    </RequirePerm>
+                  }
+                />
 
                 <Route path="/users" element={<Navigate to="/config/users" replace />} />
 

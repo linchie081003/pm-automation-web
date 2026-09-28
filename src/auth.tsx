@@ -30,7 +30,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const me = await api<Me>("/auth/me");
       setUser(me);
     } catch {
-      setUser(null);
+      try {
+        await api<{ ok: boolean }>("/auth/refresh", {
+          method: "POST",
+          body: JSON.stringify({ refresh_token: null }),
+        });
+        const me = await api<Me>("/auth/me");
+        setUser(me);
+      } catch {
+        setUser(null);
+      }
     } finally {
       setLoading(false);
     }

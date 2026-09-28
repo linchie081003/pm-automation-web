@@ -7,6 +7,8 @@ export type ClickUpSyncResult = {
   relinked_milestones?: number;
   inherited_dates?: number;
   timeline_dates_updated?: number;
+  clickup_dates_from_timeline?: number;
+  clickup_api_date_updates?: number;
 };
 
 export function formatClickUpSyncMessage(r: ClickUpSyncResult): string {
@@ -14,7 +16,14 @@ export function formatClickUpSyncMessage(r: ClickUpSyncResult): string {
   if (r.inherited_dates) {
     parts.push(`${r.inherited_dates} subtask dapat tanggal dari parent`);
   }
-  if (r.timeline_dates_updated) {
+  if (r.clickup_dates_from_timeline || r.clickup_api_date_updates) {
+    parts.push(
+      `${r.clickup_dates_from_timeline ?? 0} task cache tanggal = timeline` +
+        (r.clickup_api_date_updates
+          ? ` · ${r.clickup_api_date_updates} di-push ke ClickUp`
+          : ""),
+    );
+  } else if (r.timeline_dates_updated) {
     parts.push(`${r.timeline_dates_updated} baris timeline (mulai/selesai) disesuaikan`);
   }
   if (r.relinked_milestones) {

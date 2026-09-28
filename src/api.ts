@@ -105,6 +105,15 @@ export function clearLegacyTokenStorage() {
   setToken(null);
 }
 
+/** 401 on these routes is expected (no session yet or bad login) — do not hard-redirect. */
+function skipLoginRedirectOn401(path: string): boolean {
+  if (path.startsWith("/integrations/clickup")) return true;
+  if (path.startsWith("/integrations/google-drive")) return true;
+  if (path.startsWith("/integrations/clickup/status-mappings")) return true;
+  if (path.startsWith("/auth/")) return true;
+  return false;
+}
+
 export async function api<T>(
   path: string,
   options: RequestInit = {},
@@ -132,8 +141,7 @@ export async function api<T>(
     if (res.status === 401) {
       const body = await readErrorBody(res);
       const msg = formatApiError(401, path, body, "Unauthorized");
-      const clickupIntegration = path.startsWith("/integrations/clickup");
-      if (!clickupIntegration) {
+      if (!skipLoginRedirectOn401(path)) {
         setToken(null);
         window.location.href = "/login";
       }
@@ -233,6 +241,42 @@ export async function downloadFile(apiPath: string, filename?: string): Promise<
     a.download = name;
     a.click();
     URL.revokeObjectURL(url);
+  } finally {
+    mutationBusyEnd();
+  }
+}
+
+export type ProjectDocumentUploadResult = {
+  id: number;
+  filename: string;
+  gdrive_url?: string;
+  gdrive_error?: string;
+};
+
+export async function uploadProjectDocument(
+  projectId: number,
+  file: File,
+  docType: string,
+  phase?: string,
+): Promise<ProjectDocumentUploadResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  let url = `/api/projects/${projectId}/documents?doc_type=${encodeURIComponent(docType)}`;
+  if (phase?.trim()) {
+    url += `&phase=${encodeURIComponent(phase.trim())}`;
+  }
+  mutationBusyStart();
+  try {
+    const res = await fetch(url, { method: "POST", credentials: "include", body: fd });
+    if (res.status === 401) {
+      const body = await readErrorBody(res);
+      throw new Error(formatApiError(401, url, body, "Unauthorized"));
+    }
+    if (!res.ok) {
+      const body = await readErrorBody(res);
+      throw new Error(formatApiError(res.status, url, body, "Upload gagal"));
+    }
+    return (await res.json()) as ProjectDocumentUploadResult;
   } finally {
     mutationBusyEnd();
   }

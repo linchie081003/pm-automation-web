@@ -41,6 +41,18 @@ export default function ConfigHubPage() {
       desc: "Folder, list, dan sinkronisasi task.",
       show: can("integrations.clickup.configure"),
     },
+    {
+      to: "/config/clickup-status",
+      title: "Status ClickUp → progress",
+      desc: "Petakan custom status ke TODO / IN PROGRESS / DONE.",
+      show: can("integrations.clickup.configure"),
+    },
+    {
+      to: "/config/google-drive",
+      title: "Integrasi Google Drive",
+      desc: "Service account untuk salin upload dokumen ke folder proyek.",
+      show: can("integrations.google_drive.configure"),
+    },
   ].filter((i) => i.show);
 
   return (

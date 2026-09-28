@@ -25,6 +25,7 @@ import {
   useChartTooltip,
   useChartZoom,
 } from "../components/ChartPanelTools";
+import { TabDocumentUpload } from "../components/TabDocumentUpload";
 import {
   formatDisplayDate,
   formatDisplayDateFromMs,
@@ -1396,6 +1397,14 @@ function PoTab({
           Simpan PO
         </button>
       </fieldset>
+      <TabDocumentUpload
+        projectId={projectId}
+        docType="po"
+        phase="po_received"
+        title="Dokumen PO"
+        hint="Unggah scan/PDF PO — tersimpan di PDC dan (jika dikonfigurasi) folder Google Drive proyek."
+        readOnly={readOnly}
+      />
     </div>
   );
 }
@@ -2041,8 +2050,16 @@ function MilestonesTab({
   const [collapsedPhases, setCollapsedPhases] = useState<Set<number>>(new Set());
   const [collapsedCu, setCollapsedCu] = useState<Set<string>>(new Set());
 
+  const timelineSortKey = (m: MilestoneRow) =>
+    m.timeline_seq ?? m.sort_order ?? (m.id > 0 ? m.id : -m.id + 1_000_000);
+
+  const orderedItems = useMemo(
+    () => [...items].sort((a, b) => timelineSortKey(a) - timelineSortKey(b)),
+    [items],
+  );
+
   const visibleItems = useMemo(() => {
-    return items.filter((m) => {
+    return orderedItems.filter((m) => {
       const phaseId = m.item_type === "phase" ? m.id : m.phase_id ?? null;
       if (phaseId != null && collapsedPhases.has(phaseId) && m.item_type !== "phase") {
         return false;
@@ -2052,7 +2069,7 @@ function MilestonesTab({
       }
       return true;
     });
-  }, [items, collapsedPhases, collapsedCu]);
+  }, [orderedItems, collapsedPhases, collapsedCu]);
 
   const togglePhase = (phaseId: number) => {
     setCollapsedPhases((prev) => {
@@ -2197,7 +2214,7 @@ function MilestonesTab({
         <>
         <TimelineGantt
           rows={visibleItems}
-          rangeRows={items}
+          rangeRows={orderedItems}
           collapsedPhases={collapsedPhases}
           collapsedCu={collapsedCu}
           onTogglePhase={togglePhase}
@@ -3801,6 +3818,14 @@ function SphTab({
         Tombol «Kick Off» aktif jika SPH lengkap, draft timeline ada, dan termin pembayaran
         disimpan. PO opsional sampai Closing Project.
       </p>
+      <TabDocumentUpload
+        projectId={projectId}
+        docType="sph"
+        phase="po_received"
+        title="Dokumen SPH"
+        hint="PDF/Office/image — tampil di sini dan tab Documents. Jika folder GDrive proyek sudah di-set, file juga disalin ke Drive (butuh service account di server)."
+        readOnly={!canEditSph}
+      />
     </div>
   );
 }
@@ -4257,6 +4282,14 @@ function PreKickoffTab({
       </div>
       </div>
       </fieldset>
+      <TabDocumentUpload
+        projectId={projectId}
+        docType="mom"
+        phase="pre_kickoff"
+        title="Dokumen Kick Off"
+        hint="MoM, materi presentasi, atau lampiran kick off meeting."
+        readOnly={readOnly}
+      />
       {deckModal && (
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <div className="modal-card">
@@ -5771,12 +5804,21 @@ function DocumentsTab({
   const [docType, setDocType] = useState("other");
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState("");
+  const [gdriveInfo, setGdriveInfo] = useState<{
+    configured: boolean;
+    service_account_email: string | null;
+  } | null>(null);
   const load = () =>
     api<typeof docs>(`/projects/${projectId}/documents`)
       .then(setDocs)
       .catch((e) => setErr(getErrorMessage(e)));
   useEffect(() => {
     load();
+    api<{ configured: boolean; service_account_email: string | null }>(
+      "/integrations/google-drive",
+    )
+      .then(setGdriveInfo)
+      .catch(() => setGdriveInfo(null));
   }, [projectId]);
   const upload = async (e: FormEvent) => {
     e.preventDefault();
@@ -5811,7 +5853,18 @@ function DocumentsTab({
           ),
         );
       }
+      const body = (await res.json()) as {
+        gdrive_url?: string;
+        gdrive_error?: string;
+      };
       setFile(null);
+      if (body.gdrive_url) {
+        setErr("");
+      } else if (body.gdrive_error) {
+        setErr(
+          `Tersimpan di server PDC. Google Drive: ${body.gdrive_error}`,
+        );
+      }
       load();
     } catch (e) {
       setErr(getErrorMessage(e));
@@ -5851,6 +5904,19 @@ function DocumentsTab({
         <button type="button" onClick={saveRepo}>
           Set GDrive link
         </button>
+      </p>
+      <p className="text-muted form-hint">
+        Link folder menentukan <strong>tujuan</strong> salinan Drive. Service account diatur di{" "}
+        <Link to="/config/google-drive">Setting → Google Drive</Link>
+        {gdriveInfo?.configured ? (
+          <>
+            {" "}
+            (aktif — bagikan folder ke{" "}
+            <strong>{gdriveInfo.service_account_email ?? "service account"}</strong> sebagai Editor).
+          </>
+        ) : (
+          <> — belum dikonfigurasi; file tetap tersimpan lokal di PDC.</>
+        )}
       </p>
       <TabAlert message={err} variant="error" />
       {canUpload && (
