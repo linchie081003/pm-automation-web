@@ -22,6 +22,7 @@ import ConfigHubPage from "./pages/ConfigHubPage";
 import TimelineTemplatesPage from "./pages/TimelineTemplatesPage";
 import WorkCalendarPage from "./pages/WorkCalendarPage";
 import ClickUpIntegrationPage from "./pages/ClickUpIntegrationPage";
+import { GlobalProgressBar } from "./components/GlobalProgressBar";
 
 
 
@@ -113,7 +114,10 @@ function Shell({ children }: { children: React.ReactNode }) {
 
       </aside>
 
-      <main className="main">{children}</main>
+      <main className="main">
+        <GlobalProgressBar />
+        {children}
+      </main>
 
     </div>
 

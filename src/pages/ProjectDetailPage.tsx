@@ -26,7 +26,17 @@ import {
   useChartTooltip,
   useChartZoom,
 } from "../components/ChartPanelTools";
-import { formatDisplayDate, formatDisplayDateFromMs, toDateInputValue } from "../lib/formatDate";
+import {
+  formatDisplayDate,
+  formatDisplayDateFromMs,
+  formatDisplayDateTime,
+  toDateInputValue,
+} from "../lib/formatDate";
+import { newId } from "../lib/newId";
+import {
+  formatDraftWeightErrors,
+  validateDraftTimelineWeight,
+} from "../lib/timelineWeightValidation";
 import { formatProjectPhase } from "../lib/projectPhase";
 import { formatClickUpSyncMessage, syncClickUpProgress } from "../clickupSync";
 
@@ -83,6 +93,7 @@ const PROJECT_TABS = [
   { id: "members", label: "Members" },
   { id: "documents", label: "Documents" },
   { id: "reminders", label: "Reminders" },
+  { id: "audit", label: "Audit trail" },
   { id: "bast", label: "Closing" },
 ] as const;
 
@@ -183,11 +194,19 @@ export default function ProjectDetailPage() {
   const [tab, setTab] = useState("sph");
   const [milestoneRefreshKey, setMilestoneRefreshKey] = useState(0);
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
+  const [gateRefreshKey, setGateRefreshKey] = useState(0);
   const [msg, setMsg] = useState("");
   const [msgIsError, setMsgIsError] = useState(false);
+  const [advanceBusy, setAdvanceBusy] = useState(false);
 
-  const load = () =>
-    api<ProjectDetail>(`/projects/${projectId}`).then(setDetail);
+  const refreshProject = () =>
+    api<ProjectDetail>(`/projects/${projectId}`).then((d) => {
+      setDetail(d);
+      setGateRefreshKey((k) => k + 1);
+      return d;
+    });
+
+  const load = refreshProject;
 
   useEffect(() => {
     load().catch((e) => {
@@ -204,13 +223,16 @@ export default function ProjectDetailPage() {
   const advancePhase = async () => {
     setMsg("");
     setMsgIsError(false);
+    setAdvanceBusy(true);
     try {
       await api(`/projects/${projectId}/advance-phase`, { method: "POST" });
       setMsg("Fase proyek berhasil dilanjutkan.");
-      load();
+      await load();
     } catch (e) {
       setMsgIsError(true);
       setMsg(getErrorMessage(e));
+    } finally {
+      setAdvanceBusy(false);
     }
   };
 
@@ -241,11 +263,13 @@ export default function ProjectDetailPage() {
         <ProjectHealthPanel
           projectId={projectId}
           detail={detail}
+          gateRefreshKey={gateRefreshKey}
           canAdvance={can("projects.write")}
           canEditPm={can("projects.write")}
           msg={msg}
           msgIsError={msgIsError}
           onAdvance={advancePhase}
+          advanceBusy={advanceBusy}
           onProjectUpdated={load}
           canDelete={can("projects.write")}
           onDeleted={() => {
@@ -275,6 +299,7 @@ export default function ProjectDetailPage() {
           timelineEditable={sphTimelineEditable(detail)}
           readOnlyPhase={priorPhasesReadOnly(detail)}
           onMethodologyChange={load}
+          onProjectRefresh={load}
           onDraftTimelineChanged={() => setMilestoneRefreshKey((k) => k + 1)}
           onAdvanceToKickOff={() => {
             setMilestoneRefreshKey((k) => k + 1);
@@ -288,6 +313,7 @@ export default function ProjectDetailPage() {
           projectId={projectId}
           readOnly={poTabReadOnly(detail)}
           currentPhase={detail.current_phase}
+          onProjectRefresh={load}
         />
       )}
       {tab === "pre_kickoff" && detail && (
@@ -295,6 +321,7 @@ export default function ProjectDetailPage() {
           projectId={projectId}
           readOnly={priorPhasesReadOnly(detail)}
           onTimelineChanged={() => setMilestoneRefreshKey((k) => k + 1)}
+          onProjectRefresh={load}
         />
       )}
       {tab === "members" && <MembersTab projectId={projectId} />}
@@ -326,9 +353,11 @@ export default function ProjectDetailPage() {
           currentPhase={detail.current_phase}
           deliveryStarted={!!detail.delivery_started_at}
           kickoffTimelineConfirmed={!!detail.kickoff_timeline_confirmed_at}
+          onProjectRefresh={load}
         />
       )}
       {tab === "reminders" && <RemindersTab projectId={projectId} />}
+      {tab === "audit" && <AuditTrailTab projectId={projectId} refreshKey={gateRefreshKey} />}
       {tab === "evaluation" && <EvaluationTab projectId={projectId} />}
       {tab === "bast" && detail && (
         <ClosingProjectTab
@@ -346,9 +375,11 @@ export default function ProjectDetailPage() {
 function ProjectHealthPanel({
   projectId,
   detail,
+  gateRefreshKey,
   canAdvance,
   canEditPm,
   onAdvance,
+  advanceBusy,
   msg,
   msgIsError,
   onProjectUpdated,
@@ -357,9 +388,11 @@ function ProjectHealthPanel({
 }: {
   projectId: number;
   detail: ProjectDetail;
+  gateRefreshKey: number;
   canAdvance: boolean;
   canEditPm?: boolean;
   onAdvance: () => void;
+  advanceBusy?: boolean;
   msg: string;
   msgIsError: boolean;
   onProjectUpdated?: () => void;
@@ -375,11 +408,35 @@ function ProjectHealthPanel({
     can_advance: boolean;
     items: { id: string; label: string; ok: boolean }[];
   } | null>(null);
+  const [gateLoading, setGateLoading] = useState(false);
   useEffect(() => {
-    if (canAdvance) {
-      api<typeof gate>(`/projects/${projectId}/phase-gate`).then(setGate).catch(() => setGate(null));
+    if (!canAdvance) {
+      setGate(null);
+      return;
     }
-  }, [projectId, canAdvance, detail.current_phase]);
+    let cancelled = false;
+    setGateLoading(true);
+    api<typeof gate>(`/projects/${projectId}/phase-gate`)
+      .then((g) => {
+        if (!cancelled) setGate(g);
+      })
+      .catch(() => {
+        if (!cancelled) setGate(null);
+      })
+      .finally(() => {
+        if (!cancelled) setGateLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    projectId,
+    canAdvance,
+    detail.current_phase,
+    detail.kickoff_timeline_confirmed_at,
+    detail.health?.actual_progress_pct,
+    gateRefreshKey,
+  ]);
   const inDelivery = DELIVERY_PHASES.has(detail.current_phase);
   const startDate = detail.planned_start_date ?? detail.health.project_start_date ?? null;
   const endDate = detail.planned_end_date ?? detail.health.project_end_date ?? null;
@@ -602,12 +659,14 @@ function ProjectHealthPanel({
                 type="button"
                 className="primary"
                 onClick={onAdvance}
-                disabled={gate ? !gate.can_advance : false}
+                disabled={advanceBusy || gateLoading || (gate ? !gate.can_advance : false)}
+                aria-busy={advanceBusy || gateLoading}
               >
-                Lanjut fase
-                {gate?.next_phase
-                  ? ` → ${PHASE_NEXT_LABEL[gate.next_phase] ?? gate.next_phase}`
-                  : ""}
+                {advanceBusy
+                  ? "Memproses…"
+                  : gateLoading
+                    ? "Memuat syarat…"
+                    : `Lanjut fase${gate?.next_phase ? ` → ${PHASE_NEXT_LABEL[gate.next_phase] ?? gate.next_phase}` : ""}`}
               </button>
               {showDeckLink && (
                 <button
@@ -893,13 +952,15 @@ function PoTab({
   projectId,
   readOnly,
   currentPhase,
+  onProjectRefresh,
 }: {
   projectId: number;
   readOnly?: boolean;
   currentPhase?: string;
+  onProjectRefresh?: () => void;
 }) {
   const emptyItem = (): PoServiceItem => ({
-    id: crypto.randomUUID(),
+    id: newId(),
     name: "",
     qty: 0,
     uom: "",
@@ -947,7 +1008,7 @@ function PoTab({
             }),
           ),
           service_items: (p.service_items?.length ? p.service_items : [emptyItem()]).map((s) => ({
-            id: s.id || crypto.randomUUID(),
+            id: s.id || newId(),
             name: s.name ?? "",
             qty: Number(s.qty) || 0,
             uom: s.uom ?? "",
@@ -992,6 +1053,7 @@ function PoTab({
       });
       setForm((f) => ({ ...f, po_sub_total: res.po_sub_total }));
       setMsg("PO disimpan.");
+      onProjectRefresh?.();
     } catch (e) {
       setMsg(getErrorMessage(e));
     }
@@ -2561,7 +2623,7 @@ function SphLineList({
         onClick={() =>
           setItems([
             ...items,
-            { id: crypto.randomUUID(), text: "", ...(showModule ? { module: "" } : {}) },
+            { id: newId(), text: "", ...(showModule ? { module: "" } : {}) },
           ])
         }
       >
@@ -2583,7 +2645,24 @@ type DraftTimelineRow = {
   parent_id?: number | null;
   parent_ref?: string | null;
   sort_order: number;
+  notes?: string | null;
 };
+
+function normalizeDraftSortOrder(rows: DraftTimelineRow[]): DraftTimelineRow[] {
+  return rows.map((r, i) => ({ ...r, sort_order: i }));
+}
+
+function moveDraftRow(
+  rows: DraftTimelineRow[],
+  index: number,
+  direction: -1 | 1,
+): DraftTimelineRow[] {
+  const j = index + direction;
+  if (j < 0 || j >= rows.length) return rows;
+  const next = [...rows];
+  [next[index], next[j]] = [next[j], next[index]];
+  return normalizeDraftSortOrder(next);
+}
 
 function syncPaymentTermsFromDraft(
   draft: DraftTimelineRow[],
@@ -2637,14 +2716,61 @@ function DraftTimelineTable({
   setDraftTimeline: (rows: DraftTimelineRow[]) => void;
   onSave: () => void | Promise<void>;
 }) {
+  const weightCheck = useMemo(
+    () => validateDraftTimelineWeight(draftRowsWithParentRefs(draftTimeline)),
+    [draftTimeline],
+  );
+
+  const handleSave = () => {
+    const err = formatDraftWeightErrors(
+      validateDraftTimelineWeight(draftRowsWithParentRefs(draftTimeline)),
+    );
+    if (err) {
+      window.alert(err);
+      return;
+    }
+    void onSave();
+  };
+
   if (draftTimeline.length === 0) return null;
   return (
     <>
+      <div
+        className={`timeline-weight-summary${weightCheck.ok ? " timeline-weight-summary--ok" : " timeline-weight-summary--warn"}`}
+        role="status"
+      >
+        <p className="timeline-weight-summary__line">
+          Total bobot phase (root):{" "}
+          <strong>{weightCheck.rootTotal.toFixed(1)}%</strong>
+          <span className="text-muted"> / 100%</span>
+          {weightCheck.ok ? (
+            <span className="timeline-weight-summary__badge timeline-weight-summary__badge--ok">
+              Valid
+            </span>
+          ) : (
+            <span className="timeline-weight-summary__badge timeline-weight-summary__badge--warn">
+              Perlu perbaikan
+            </span>
+          )}
+        </p>
+        {!weightCheck.ok && (
+          <ul className="timeline-weight-summary__issues">
+            {weightCheck.issues.map((issue) => (
+              <li key={issue}>{issue}</li>
+            ))}
+          </ul>
+        )}
+        <p className="text-muted timeline-weight-summary__hint">
+          Aturan: total phase root = 100%; jumlah bobot anak (task/subtask) = bobot parent (±0,5%).
+        </p>
+      </div>
       <div className="table-scroll">
         <table className="data-table data-table--timeline">
           <thead>
             <tr>
+              {canEdit && <th className="timeline-col-order">Urutan</th>}
               <th>Nama</th>
+              <th>Catatan / deskripsi</th>
               <th>Durasi (hari kerja)</th>
               <th>Mulai</th>
               <th>Selesai</th>
@@ -2657,6 +2783,36 @@ function DraftTimelineTable({
           <tbody>
             {draftTimeline.map((row, index) => (
               <tr key={row.id ?? row.row_key ?? index}>
+                {canEdit && (
+                  <td className="timeline-col-order">
+                    <div className="timeline-order-btns">
+                      <button
+                        type="button"
+                        className="timeline-order-btn"
+                        title="Naikkan"
+                        disabled={index === 0}
+                        aria-label="Naikkan baris"
+                        onClick={() =>
+                          setDraftTimeline(moveDraftRow(draftTimeline, index, -1))
+                        }
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        className="timeline-order-btn"
+                        title="Turunkan"
+                        disabled={index === draftTimeline.length - 1}
+                        aria-label="Turunkan baris"
+                        onClick={() =>
+                          setDraftTimeline(moveDraftRow(draftTimeline, index, 1))
+                        }
+                      >
+                        ↓
+                      </button>
+                    </div>
+                  </td>
+                )}
                 <td>
                   <input
                     className="sph-inline-input"
@@ -2665,6 +2821,19 @@ function DraftTimelineTable({
                     onChange={(e) => {
                       const next = [...draftTimeline];
                       next[index] = { ...next[index], name: e.target.value };
+                      setDraftTimeline(next);
+                    }}
+                  />
+                </td>
+                <td className="timeline-col-notes">
+                  <input
+                    className="sph-inline-input sph-inline-input--notes"
+                    value={row.notes ?? ""}
+                    readOnly={!canEdit}
+                    placeholder="Opsional"
+                    onChange={(e) => {
+                      const next = [...draftTimeline];
+                      next[index] = { ...next[index], notes: e.target.value };
                       setDraftTimeline(next);
                     }}
                   />
@@ -2785,7 +2954,11 @@ function DraftTimelineTable({
                       type="button"
                       className="danger-link"
                       onClick={() =>
-                        setDraftTimeline(draftTimeline.filter((_, i) => i !== index))
+                        setDraftTimeline(
+                          normalizeDraftSortOrder(
+                            draftTimeline.filter((_, i) => i !== index),
+                          ),
+                        )
                       }
                     >
                       Hapus
@@ -2803,23 +2976,26 @@ function DraftTimelineTable({
             type="button"
             className="btn-add-row"
             onClick={() =>
-              setDraftTimeline([
-                ...draftTimeline,
-                {
-                  name: "Baru",
-                  duration_days: 1,
-                  weight_pct: 0,
-                  item_type: "task",
-                  parent_ref: null,
-                  sort_order: draftTimeline.length,
-                  row_key: `row_${draftTimeline.length + 1}`,
-                },
-              ])
+              setDraftTimeline(
+                normalizeDraftSortOrder([
+                  ...draftTimeline,
+                  {
+                    name: "Baru",
+                    duration_days: 1,
+                    weight_pct: 0,
+                    item_type: "task",
+                    parent_ref: null,
+                    sort_order: draftTimeline.length,
+                    row_key: `row_${newId().slice(0, 8)}`,
+                    notes: "",
+                  },
+                ]),
+              )
             }
           >
             + Tambah baris timeline
           </button>
-          <button type="button" className="primary" onClick={() => void onSave()}>
+          <button type="button" className="primary" onClick={handleSave}>
             Simpan & hitung ulang tanggal
           </button>
         </div>
@@ -2836,6 +3012,7 @@ function SphTab({
   onMethodologyChange,
   onDraftTimelineChanged,
   onAdvanceToKickOff,
+  onProjectRefresh,
 }: {
   projectId: number;
   projectMethodology: string;
@@ -2844,6 +3021,7 @@ function SphTab({
   onMethodologyChange?: () => void;
   onDraftTimelineChanged?: () => void;
   onAdvanceToKickOff?: () => void;
+  onProjectRefresh?: () => void;
 }) {
   const [form, setForm] = useState({
     sph_no: "",
@@ -2933,7 +3111,7 @@ function SphTab({
       ) => {
         if (items?.length) {
           return items.map((i) => ({
-            id: i.id || crypto.randomUUID(),
+            id: i.id || newId(),
             text: i.text,
             ...(withModule ? { module: i.module ?? "" } : {}),
           }));
@@ -2943,7 +3121,7 @@ function SphTab({
             .split("\n")
             .map((line) => line.replace(/^-\s*/, "").trim())
             .filter(Boolean)
-            .map((text) => ({ id: crypto.randomUUID(), text }));
+            .map((text) => ({ id: newId(), text }));
         }
         return [];
       };
@@ -2951,7 +3129,7 @@ function SphTab({
       setNonScopeItems(toLines(s.non_scope_items ?? [], s.non_scope_text ?? ""));
       setDeliveryItems(
         (s.delivery_items ?? []).map((d) => ({
-          id: d.id || crypto.randomUUID(),
+          id: d.id || newId(),
           name: d.name,
           amount_rupiah: formatRupiahDigits(d.amount_rupiah ?? 0),
         })),
@@ -2978,6 +3156,13 @@ function SphTab({
   };
   const saveDraftTimeline = async () => {
     setMsg("");
+    const weightErr = formatDraftWeightErrors(
+      validateDraftTimelineWeight(draftRowsWithParentRefs(draftTimeline)),
+    );
+    if (weightErr) {
+      setMsg(weightErr);
+      return;
+    }
     try {
       const rowsPayload = draftRowsWithParentRefs(draftTimeline);
       const res = await api<{
@@ -3003,7 +3188,8 @@ function SphTab({
             parent_ref: r.parent_ref || null,
             parent_id: r.parent_id ?? null,
             target_date: r.item_type === "milestone" ? r.target_date : undefined,
-            sort_order: r.sort_order ?? idx,
+            sort_order: idx,
+            notes: (r.notes ?? "").trim() || null,
           })),
         }),
       });
@@ -3017,6 +3203,7 @@ function SphTab({
         setPaymentTerms(syncPaymentTermsFromDraft(mappedDraft, paymentTerms));
       }
       setMsg("Draft timeline disimpan. Termin ter-map ikut diperbarui.");
+      onProjectRefresh?.();
     } catch (e) {
       setMsg(getErrorMessage(e));
     }
@@ -3062,6 +3249,7 @@ function SphTab({
       });
       setMsg("SPH disimpan.");
       load();
+      onProjectRefresh?.();
     } catch (e) {
       setMsg(getErrorMessage(e));
     }
@@ -3085,6 +3273,7 @@ function SphTab({
       });
       setMsg("Termin pembayaran disimpan.");
       load();
+      onProjectRefresh?.();
     } catch (e) {
       setMsg(getErrorMessage(e));
     }
@@ -3151,12 +3340,20 @@ function SphTab({
       );
       load();
       onDraftTimelineChanged?.();
+      onProjectRefresh?.();
     } catch (e) {
       setMsg(getErrorMessage(e));
     }
   };
   const finalizeTimelineForKickoff = async () => {
     setMsg("");
+    const weightErr = formatDraftWeightErrors(
+      validateDraftTimelineWeight(draftRowsWithParentRefs(draftTimeline)),
+    );
+    if (weightErr) {
+      setMsg(weightErr);
+      return;
+    }
     try {
       await api<{ current_phase?: string }>(
         `/projects/${projectId}/sph/generate-timeline`,
@@ -3164,6 +3361,7 @@ function SphTab({
       );
       setMsg("Fase Kick Off — timeline draft tersedia di tab Kick Off. SPH hanya baca.");
       load();
+      onProjectRefresh?.();
       onAdvanceToKickOff?.();
     } catch (e) {
       setMsg(getErrorMessage(e));
@@ -3337,7 +3535,7 @@ function SphTab({
             onClick={() =>
               setDeliveryItems([
                 ...deliveryItems,
-                { id: crypto.randomUUID(), name: "", amount_rupiah: "" as string },
+                { id: newId(), name: "", amount_rupiah: "" as string },
               ])
             }
           >
@@ -3739,10 +3937,12 @@ function PreKickoffTab({
   projectId,
   readOnly,
   onTimelineChanged,
+  onProjectRefresh,
 }: {
   projectId: number;
   readOnly?: boolean;
   onTimelineChanged?: () => void;
+  onProjectRefresh?: () => void;
 }) {
   const [pack, setPack] = useState<PreKickoffPack | null>(null);
   const [msg, setMsg] = useState("");
@@ -3757,7 +3957,7 @@ function PreKickoffTab({
         ...p,
         deliverables_items: p.deliverables_items?.length
           ? p.deliverables_items.map((d) => ({
-              id: d.id || crypto.randomUUID(),
+              id: d.id || newId(),
               text: d.text,
             }))
           : [],
@@ -3776,6 +3976,7 @@ function PreKickoffTab({
             parent_id: r.parent_id,
             parent_ref: r.parent_ref,
             sort_order: r.sort_order ?? idx,
+            notes: r.notes ?? "",
           })),
         ),
       );
@@ -3805,6 +4006,7 @@ function PreKickoffTab({
     });
     setMsg("Kick Off disimpan.");
     load();
+    onProjectRefresh?.();
   };
   const canEditDraft =
     !readOnly &&
@@ -3814,6 +4016,13 @@ function PreKickoffTab({
 
   const saveKickoffDraftTimeline = async () => {
     setMsg("");
+    const weightErr = formatDraftWeightErrors(
+      validateDraftTimelineWeight(draftRowsWithParentRefs(draftTimeline)),
+    );
+    if (weightErr) {
+      setMsg(weightErr);
+      return;
+    }
     try {
       const rowsPayload = draftRowsWithParentRefs(draftTimeline);
       const res = await api<{ draft_timeline: DraftTimelineRow[] }>(
@@ -3832,7 +4041,8 @@ function PreKickoffTab({
               parent_ref: r.parent_ref || null,
               parent_id: r.parent_id ?? null,
               target_date: r.item_type === "milestone" ? r.target_date : undefined,
-              sort_order: r.sort_order ?? idx,
+              sort_order: idx,
+              notes: (r.notes ?? "").trim() || null,
             })),
           }),
         },
@@ -3841,6 +4051,7 @@ function PreKickoffTab({
       setMsg("Draft timeline disimpan — tanggal dihitung ulang.");
       onTimelineChanged?.();
       load();
+      onProjectRefresh?.();
     } catch (e) {
       setMsg(getErrorMessage(e));
     }
@@ -3856,11 +4067,19 @@ function PreKickoffTab({
 
   const confirmTimeline = async () => {
     setMsg("");
+    const weightErr = formatDraftWeightErrors(
+      validateDraftTimelineWeight(draftRowsWithParentRefs(draftTimeline)),
+    );
+    if (weightErr) {
+      setMsg(weightErr);
+      return;
+    }
     try {
       await api(`/projects/${projectId}/pre-kickoff/confirm-timeline`, { method: "POST" });
       setMsg("Timeline dikonfirmasi — lanjut ke delivery via «Lanjut fase» di panel kesehatan.");
       onTimelineChanged?.();
       load();
+      onProjectRefresh?.();
     } catch (e) {
       setMsg(getErrorMessage(e));
     }
@@ -3980,8 +4199,9 @@ function PreKickoffTab({
       <section className="card kickoff-section ui-section">
         <h3 className="card-title">Draft timeline Kick Off</h3>
         <p className="text-muted ui-section__desc">
-          Muncul setelah SPH selesai («Lanjut ke Kick Off»). Sesuaikan durasi, mulai, dan selesai
-          seperti di tab SPH, lalu konfirmasi sebelum fase delivery.
+          Muncul setelah SPH selesai («Lanjut ke Kick Off»). Urutkan baris, isi catatan, sesuaikan
+          bobot (total root 100%, anak = parent), durasi, dan tanggal — sama seperti tab SPH — lalu
+          konfirmasi sebelum fase delivery.
         </p>
         {!pack.draft_timeline_ready ? (
           <p className="text-muted">
@@ -5335,6 +5555,97 @@ function isPastWeeklyAnchor(anchor: string, activeAnchor: string | null): boolea
   return anchor < activeAnchor;
 }
 
+type AuditLogRow = {
+  id: number;
+  action: string;
+  action_label: string;
+  detail: Record<string, unknown>;
+  created_at: string | null;
+  user_name: string | null;
+  user_email: string | null;
+};
+
+function formatAuditDetail(detail: Record<string, unknown>): string {
+  const keys = Object.keys(detail);
+  if (!keys.length) return "—";
+  return keys
+    .map((k) => {
+      const v = detail[k];
+      if (v == null || v === "") return null;
+      return `${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`;
+    })
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function AuditTrailTab({
+  projectId,
+  refreshKey,
+}: {
+  projectId: number;
+  refreshKey: number;
+}) {
+  const [items, setItems] = useState<AuditLogRow[]>([]);
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    setLoading(true);
+    setErr("");
+    api<{ items: AuditLogRow[] }>(`/projects/${projectId}/activity-log`)
+      .then((r) => setItems(r.items ?? []))
+      .catch((e) => {
+        setErr(getErrorMessage(e));
+        setItems([]);
+      })
+      .finally(() => setLoading(false));
+  }, [projectId, refreshKey]);
+  return (
+    <div className="card">
+      <h2 className="card-title">Audit trail</h2>
+      <p className="text-muted form-hint">
+        Riwayat aktivitas penting pada proyek ini (fase, SPH/PO, dokumen, progress, dll.).
+      </p>
+      <TabAlert message={err} variant="error" />
+      {loading ? (
+        <p className="text-muted">Memuat audit trail…</p>
+      ) : items.length === 0 ? (
+        <p className="text-muted">Belum ada entri audit.</p>
+      ) : (
+        <div className="table-scroll">
+          <table className="audit-trail-table">
+            <thead>
+              <tr>
+                <th>Waktu</th>
+                <th>Aktivitas</th>
+                <th>Pengguna</th>
+                <th>Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((row) => (
+                <tr key={row.id}>
+                  <td>{formatDisplayDateTime(row.created_at)}</td>
+                  <td>{row.action_label}</td>
+                  <td>
+                    {row.user_name?.trim() ||
+                      row.user_email?.trim() ||
+                      "—"}
+                  </td>
+                  <td>
+                    <span className="audit-trail-detail">
+                      {formatAuditDetail(row.detail ?? {})}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RemindersTab({ projectId }: { projectId: number }) {
   const [items, setItems] = useState<
     { type: string; severity: string; title: string; message: string }[]
@@ -5720,6 +6031,7 @@ function ReportsTab({
   currentPhase,
   deliveryStarted,
   kickoffTimelineConfirmed,
+  onProjectRefresh,
 }: {
   projectId: number;
   projectCode?: string;
@@ -5727,6 +6039,7 @@ function ReportsTab({
   currentPhase: string;
   deliveryStarted: boolean;
   kickoffTimelineConfirmed: boolean;
+  onProjectRefresh?: () => void;
 }) {
   const inDelivery = deliveryStarted && DELIVERY_PHASES.has(currentPhase);
   const [reports, setReports] = useState<
@@ -5884,6 +6197,7 @@ function ReportsTab({
       });
       setMsg("Progress mingguan disimpan (snapshot).");
       api<typeof scurve>(`/projects/${projectId}/schedule/scurve`).then(setScurve);
+      onProjectRefresh?.();
     } catch (e) {
       setErr(getErrorMessage(e));
     } finally {
@@ -5905,6 +6219,7 @@ function ReportsTab({
       });
       setPreview(null);
       load();
+      onProjectRefresh?.();
       setErr("");
       setMsg("Laporan digenerate dan disimpan. Lihat tab DOCUMENTS.");
     } catch (e) {
@@ -6625,7 +6940,7 @@ function ClosingProjectTab({
     if (!label) return;
     setItems([
       ...items,
-      { id: crypto.randomUUID(), label, done: false },
+      { id: newId(), label, done: false },
     ]);
     setNewLabel("");
   };

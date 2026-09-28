@@ -1,3 +1,5 @@
+import { isMutationMethod, mutationBusyEnd, mutationBusyStart } from "./lib/mutationBusy";
+
 const TOKEN_KEY = "pdc_access_token";
 
 export function getErrorMessage(err: unknown): string {
@@ -103,32 +105,38 @@ export async function api<T>(
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  let res: Response;
+  const trackBusy = isMutationMethod(options.method);
+  if (trackBusy) mutationBusyStart();
   try {
-    res = await fetch(`/api${path}`, { ...options, headers });
-  } catch (networkErr) {
-    throw new Error(
-      `[Jaringan] Tidak dapat menghubungi API. Pastikan backend (uvicorn) dan Vite proxy jalan. (${path})`,
-    );
-  }
-
-  if (res.status === 401) {
-    const body = await readErrorBody(res);
-    const msg = formatApiError(401, path, body, "Unauthorized");
-    const clickupIntegration = path.startsWith("/integrations/clickup");
-    if (!clickupIntegration) {
-      setToken(null);
-      window.location.href = "/login";
+    let res: Response;
+    try {
+      res = await fetch(`/api${path}`, { ...options, headers });
+    } catch {
+      throw new Error(
+        `[Jaringan] Tidak dapat menghubungi API. Pastikan backend (uvicorn) dan Vite proxy jalan. (${path})`,
+      );
     }
-    throw new Error(msg);
+
+    if (res.status === 401) {
+      const body = await readErrorBody(res);
+      const msg = formatApiError(401, path, body, "Unauthorized");
+      const clickupIntegration = path.startsWith("/integrations/clickup");
+      if (!clickupIntegration) {
+        setToken(null);
+        window.location.href = "/login";
+      }
+      throw new Error(msg);
+    }
+    if (!res.ok) {
+      const body = await readErrorBody(res);
+      const msg = formatApiError(res.status, path, body, res.statusText);
+      throw new Error(msg);
+    }
+    if (res.status === 204) return undefined as T;
+    return res.json() as Promise<T>;
+  } finally {
+    if (trackBusy) mutationBusyEnd();
   }
-  if (!res.ok) {
-    const body = await readErrorBody(res);
-    const msg = formatApiError(res.status, path, body, res.statusText);
-    throw new Error(msg);
-  }
-  if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
 }
 
 /** Fetch file bytes with JWT (for preview or custom handling). */
@@ -139,28 +147,31 @@ export async function fetchFileBlob(
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  let res: Response;
+  mutationBusyStart();
   try {
-    res = await fetch(`/api${apiPath}`, { headers });
-  } catch (networkErr) {
-    throw new Error(
-      `[Jaringan] Tidak dapat mengambil file. (${apiPath})`,
-    );
+    let res: Response;
+    try {
+      res = await fetch(`/api${apiPath}`, { headers });
+    } catch {
+      throw new Error(`[Jaringan] Tidak dapat mengambil file. (${apiPath})`);
+    }
+    if (res.status === 401) {
+      setToken(null);
+      window.location.href = "/login";
+      throw new Error("Unauthorized");
+    }
+    if (!res.ok) {
+      const body = await readErrorBody(res);
+      throw new Error(formatApiError(res.status, apiPath, body, res.statusText));
+    }
+    const blob = await res.blob();
+    const filename =
+      res.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/)?.[1] ||
+      "file";
+    return { blob, filename };
+  } finally {
+    mutationBusyEnd();
   }
-  if (res.status === 401) {
-    setToken(null);
-    window.location.href = "/login";
-    throw new Error("Unauthorized");
-  }
-  if (!res.ok) {
-    const body = await readErrorBody(res);
-    throw new Error(formatApiError(res.status, apiPath, body, res.statusText));
-  }
-  const blob = await res.blob();
-  const filename =
-    res.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/)?.[1] ||
-    "file";
-  return { blob, filename };
 }
 
 /** Open preview in new tab (PDF/image) or trigger download (Office). */
@@ -186,34 +197,39 @@ export async function downloadFile(apiPath: string, filename?: string): Promise<
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  let res: Response;
+  mutationBusyStart();
   try {
-    res = await fetch(`/api${apiPath}`, { headers });
-  } catch (networkErr) {
-    throw new Error(`[Jaringan] Unduh gagal — periksa koneksi API. (${apiPath})`);
-  }
+    let res: Response;
+    try {
+      res = await fetch(`/api${apiPath}`, { headers });
+    } catch {
+      throw new Error(`[Jaringan] Unduh gagal — periksa koneksi API. (${apiPath})`);
+    }
 
-  if (res.status === 401) {
-    const body = await readErrorBody(res);
-    const msg = formatApiError(401, apiPath, body, "Unauthorized");
-    setToken(null);
-    window.location.href = "/login";
-    throw new Error(msg);
+    if (res.status === 401) {
+      const body = await readErrorBody(res);
+      const msg = formatApiError(401, apiPath, body, "Unauthorized");
+      setToken(null);
+      window.location.href = "/login";
+      throw new Error(msg);
+    }
+    if (!res.ok) {
+      const body = await readErrorBody(res);
+      const msg = formatApiError(res.status, apiPath, body, res.statusText);
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const name =
+      filename ||
+      res.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/)?.[1] ||
+      "download";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  } finally {
+    mutationBusyEnd();
   }
-  if (!res.ok) {
-    const body = await readErrorBody(res);
-    const msg = formatApiError(res.status, apiPath, body, res.statusText);
-    throw new Error(msg);
-  }
-  const blob = await res.blob();
-  const name =
-    filename ||
-    res.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/)?.[1] ||
-    "download";
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(url);
 }

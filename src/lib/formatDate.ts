@@ -24,6 +24,19 @@ export function formatDisplayDate(raw: string | null | undefined): string {
 }
 
 /** Dari timestamp (ms) ke DD/MM/YYYY — sama dengan formatDisplayDate. */
+/** ISO datetime (UTC) → DD/MM/YYYY HH:mm (lokal). */
+export function formatDisplayDateTime(iso: string | null | undefined): string {
+  if (iso == null || iso === "") return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  const date = formatDisplayDate(
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+  );
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${date} ${hh}:${mm}`;
+}
+
 export function formatDisplayDateFromMs(ms: number): string {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return "—";
