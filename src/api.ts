@@ -1,33 +1,5 @@
 const TOKEN_KEY = "pdc_access_token";
 
-const DEBUG_INGEST =
-  "http://127.0.0.1:7732/ingest/ba77a7ad-9933-4cb7-baa7-eee94d8b45bd";
-
-// #region agent log
-function debugErrorLog(
-  hypothesisId: string,
-  location: string,
-  message: string,
-  data: Record<string, unknown>,
-) {
-  fetch(DEBUG_INGEST, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "aa7388",
-    },
-    body: JSON.stringify({
-      sessionId: "aa7388",
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-}
-// #endregion
-
 export function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
@@ -69,24 +41,10 @@ function parseDetailField(detail: unknown): string {
 /** Build user-facing message from HTTP error response. */
 export function formatApiError(
   status: number,
-  path: string,
+  _path: string,
   body: unknown,
   fallbackText: string,
 ): string {
-  // #region agent log
-  debugErrorLog("A", "api.ts:formatApiError", "error body shape", {
-    status,
-    path,
-    bodyKind: body === null ? "null" : typeof body,
-    hasDetail:
-      body && typeof body === "object" && "detail" in (body as object),
-    detailType:
-      body && typeof body === "object"
-        ? typeof (body as { detail?: unknown }).detail
-        : "n/a",
-  });
-  // #endregion
-
   let core = fallbackText;
   if (body && typeof body === "object") {
     const record = body as { detail?: unknown; message?: string };
@@ -96,13 +54,6 @@ export function formatApiError(
       core = record.message;
     }
   } else if (typeof body === "string" && body.trim()) {
-    // #region agent log
-    debugErrorLog("B", "api.ts:formatApiError", "non-json text body", {
-      status,
-      path,
-      snippet: body.slice(0, 120),
-    });
-    // #endregion
     core = body.trim().slice(0, 300);
   }
 
@@ -156,12 +107,6 @@ export async function api<T>(
   try {
     res = await fetch(`/api${path}`, { ...options, headers });
   } catch (networkErr) {
-    // #region agent log
-    debugErrorLog("E", "api.ts:api", "network failure", {
-      path,
-      err: networkErr instanceof Error ? networkErr.message : String(networkErr),
-    });
-    // #endregion
     throw new Error(
       `[Jaringan] Tidak dapat menghubungi API. Pastikan backend (uvicorn) dan Vite proxy jalan. (${path})`,
     );
@@ -170,9 +115,6 @@ export async function api<T>(
   if (res.status === 401) {
     const body = await readErrorBody(res);
     const msg = formatApiError(401, path, body, "Unauthorized");
-    // #region agent log
-    debugErrorLog("C", "api.ts:api", "401 response", { path, msg });
-    // #endregion
     const clickupIntegration = path.startsWith("/integrations/clickup");
     if (!clickupIntegration) {
       setToken(null);
@@ -183,9 +125,6 @@ export async function api<T>(
   if (!res.ok) {
     const body = await readErrorBody(res);
     const msg = formatApiError(res.status, path, body, res.statusText);
-    // #region agent log
-    debugErrorLog("A", "api.ts:api", "api error thrown", { path, status: res.status, msg });
-    // #endregion
     throw new Error(msg);
   }
   if (res.status === 204) return undefined as T;
@@ -251,17 +190,12 @@ export async function downloadFile(apiPath: string, filename?: string): Promise<
   try {
     res = await fetch(`/api${apiPath}`, { headers });
   } catch (networkErr) {
-    debugErrorLog("E", "api.ts:downloadFile", "network failure", {
-      path: apiPath,
-      err: networkErr instanceof Error ? networkErr.message : String(networkErr),
-    });
     throw new Error(`[Jaringan] Unduh gagal — periksa koneksi API. (${apiPath})`);
   }
 
   if (res.status === 401) {
     const body = await readErrorBody(res);
     const msg = formatApiError(401, apiPath, body, "Unauthorized");
-    debugErrorLog("C", "api.ts:downloadFile", "401 on download", { path: apiPath, msg });
     setToken(null);
     window.location.href = "/login";
     throw new Error(msg);
@@ -269,13 +203,6 @@ export async function downloadFile(apiPath: string, filename?: string): Promise<
   if (!res.ok) {
     const body = await readErrorBody(res);
     const msg = formatApiError(res.status, apiPath, body, res.statusText);
-    // #region agent log
-    debugErrorLog("B", "api.ts:downloadFile", "download failed", {
-      path: apiPath,
-      status: res.status,
-      msg,
-    });
-    // #endregion
     throw new Error(msg);
   }
   const blob = await res.blob();

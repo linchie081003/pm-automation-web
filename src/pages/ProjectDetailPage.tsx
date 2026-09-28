@@ -3128,27 +3128,6 @@ function SphTab({
         timeline_template_id: timelineTemplateId ? Number(timelineTemplateId) : null,
       }),
     });
-    // #region agent log
-    fetch("http://127.0.0.1:7732/ingest/ba77a7ad-9933-4cb7-baa7-eee94d8b45bd", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Debug-Session-Id": "aa7388",
-      },
-      body: JSON.stringify({
-        sessionId: "aa7388",
-        hypothesisId: "H-target-persist",
-        location: "ProjectDetailPage:persistTimelinePlanning",
-        message: "target/start persisted",
-        data: {
-          projectId,
-          targetDays,
-          draftRowCount: draftTimeline.length,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
   };
   const generateDraftFromTemplate = async () => {
     setMsg("");
@@ -3172,23 +3151,6 @@ function SphTab({
       );
       load();
       onDraftTimelineChanged?.();
-      // #region agent log
-      fetch("http://127.0.0.1:7732/ingest/ba77a7ad-9933-4cb7-baa7-eee94d8b45bd", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Debug-Session-Id": "aa7388",
-        },
-        body: JSON.stringify({
-          sessionId: "aa7388",
-          hypothesisId: "H1-phase-tab",
-          location: "ProjectDetailPage:generateDraftFromTemplate",
-          message: "draft generated — stay on SPH tab",
-          data: { projectId },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
     } catch (e) {
       setMsg(getErrorMessage(e));
     }
@@ -5812,23 +5774,6 @@ function ReportsTab({
   const loadScurve = () =>
     api<typeof scurve>(`/projects/${projectId}/schedule/scurve`)
       .then((pts) => {
-        // #region agent log
-        fetch("http://127.0.0.1:7732/ingest/ba77a7ad-9933-4cb7-baa7-eee94d8b45bd", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "aa7388" },
-          body: JSON.stringify({
-            sessionId: "aa7388",
-            hypothesisId: "H3-frontend-scurve",
-            location: "ProjectDetailPage.tsx:loadScurve",
-            message: "scurve loaded",
-            data: {
-              count: pts.length,
-              last: pts[pts.length - 1] ?? null,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
         setScurve(pts);
       })
       .catch(() => setScurve([]));
