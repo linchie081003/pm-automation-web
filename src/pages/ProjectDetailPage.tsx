@@ -1979,7 +1979,31 @@ type ProposedPhaseRow = {
   milestone_id?: number | null;
   client_key?: string;
   sort_order: number;
+  lifecycle?: "open" | "in_progress" | "closed";
+  can_delete?: boolean;
+  can_edit_weight?: boolean;
+  clickup_workflow?: string;
+  pdc_status?: string;
 };
+
+type RebaselinePhaseSummary = {
+  open_phase_ids: number[];
+  in_progress_phase_ids: number[];
+  closed_phase_ids: number[];
+  adjustable_weights: {
+    milestone_id: number;
+    name: string;
+    weight_pct: number;
+    lifecycle: string;
+  }[];
+};
+
+function rebaselineLifecycleLabel(row: ProposedPhaseRow): string {
+  if (!row.milestone_id) return "Fase baru";
+  if (row.lifecycle === "closed" || row.pdc_status === "done") return "Closed (selesai)";
+  if (row.lifecycle === "in_progress") return "In progress";
+  return "Open";
+}
 
 function MilestonesTab({
   projectId,
@@ -2024,6 +2048,8 @@ function MilestonesTab({
   const [rebasePreviewPayload, setRebasePreviewPayload] = useState<RebaselineDiffPayload | null>(
     null,
   );
+  const [rebasePhaseSummary, setRebasePhaseSummary] = useState<RebaselinePhaseSummary | null>(null);
+  const [rebaseClickUpNote, setRebaseClickUpNote] = useState("");
   const [rebaseMsg, setRebaseMsg] = useState("");
   const [rebaseBusy, setRebaseBusy] = useState(false);
   const behind =
@@ -2068,21 +2094,42 @@ function MilestonesTab({
           weight_pct: String(row.weight_pct ?? "0"),
           milestone_id: typeof row.milestone_id === "number" ? row.milestone_id : null,
           sort_order: typeof row.sort_order === "number" ? row.sort_order : i,
+          lifecycle:
+            row.lifecycle === "closed" ||
+            row.lifecycle === "in_progress" ||
+            row.lifecycle === "open"
+              ? row.lifecycle
+              : undefined,
+          can_delete: row.can_delete !== false,
+          can_edit_weight: row.can_edit_weight !== false,
+          clickup_workflow: row.clickup_workflow ? String(row.clickup_workflow) : undefined,
+          pdc_status: row.pdc_status ? String(row.pdc_status) : undefined,
         })),
       );
     },
     [],
   );
 
+  const proposedWeightTotal = useMemo(
+    () =>
+      proposedPhases.reduce((sum, p) => sum + (parseFloat(p.weight_pct) || 0), 0),
+    [proposedPhases],
+  );
+  const weightTotalOk = Math.abs(proposedWeightTotal - 100) < 0.02;
+
   useEffect(() => {
     if (!rebaselineOptIn) return;
     setRebaseMsg("");
     api<{
       seed_from_live: Array<Record<string, unknown>>;
+      phase_summary: RebaselinePhaseSummary;
+      clickup_note?: string;
       eligibility: { delay: boolean; scope_change: boolean };
     }>(`/projects/${projectId}/rebaseline/preview`)
       .then((data) => {
         seedProposedFromPreview(data.seed_from_live);
+        setRebasePhaseSummary(data.phase_summary ?? null);
+        setRebaseClickUpNote(data.clickup_note ?? "");
         if (rebaseCategory === "delay" && !data.eligibility.delay && data.eligibility.scope_change) {
           setRebaseCategory("scope_change");
         }
@@ -2528,10 +2575,52 @@ function MilestonesTab({
         )}
         {rebaselineEnabled && (
           <>
+            {rebasePhaseSummary && (
+              <div className="sph-info-panel" style={{ marginBottom: "0.75rem" }}>
+                <p className="text-muted" style={{ marginTop: 0 }}>
+                  <strong>Status fase (live + ClickUp):</strong> Open{" "}
+                  {rebasePhaseSummary.open_phase_ids.length}, In progress{" "}
+                  {rebasePhaseSummary.in_progress_phase_ids.length}, Closed{" "}
+                  {rebasePhaseSummary.closed_phase_ids.length}. Hapus hanya untuk fase Open.
+                  Bobot fase Closed (done) terkunci.
+                </p>
+                {rebaseCategory === "scope_change" &&
+                  rebasePhaseSummary.adjustable_weights.length > 0 && (
+                    <p className="text-muted">
+                      Bobot dapat disesuaikan (ambil dari):{" "}
+                      {rebasePhaseSummary.adjustable_weights
+                        .filter((a) => a.lifecycle !== "closed")
+                        .map((a) => `${a.name} (${a.weight_pct}%)`)
+                        .join(", ") || "—"}
+                    </p>
+                  )}
+              </div>
+            )}
+            {rebaseClickUpNote && (
+              <div className="sph-info-panel" style={{ marginBottom: "0.75rem" }}>
+                <p className="text-muted" style={{ marginTop: 0 }}>
+                  {rebaseClickUpNote}
+                </p>
+                <button
+                  type="button"
+                  disabled={syncBusy}
+                  onClick={() => void syncFromClickUp()}
+                >
+                  {syncBusy ? "Sync…" : "Sync ClickUp sekarang"}
+                </button>
+              </div>
+            )}
+            {rebaseCategory === "scope_change" && (
+              <p className="text-muted">
+                Perubahan scope wajib menambahkan minimal satu fase baru; kurangi bobot fase open
+                agar total tetap 100%.
+              </p>
+            )}
             <h4 className="subsection-title">Usulan fase (phase)</h4>
             <table className="compact-table">
               <thead>
                 <tr>
+                  <th>Status</th>
                   <th>Nama</th>
                   <th>Start</th>
                   <th>Target</th>
@@ -2540,8 +2629,22 @@ function MilestonesTab({
                 </tr>
               </thead>
               <tbody>
-                {proposedPhases.map((row, idx) => (
+                {proposedPhases.map((row, idx) => {
+                  const deleteLocked =
+                    row.milestone_id != null && row.can_delete === false;
+                  const weightLocked =
+                    rebaseCategory === "delay" ||
+                    (row.milestone_id != null && row.can_edit_weight === false);
+                  return (
                   <tr key={row.milestone_id ?? row.client_key ?? idx}>
+                    <td>
+                      <span
+                        className={`phase-status phase-status--${(row.lifecycle ?? "open").replace(/_/g, "-")}`}
+                        title={row.clickup_workflow ?? undefined}
+                      >
+                        {rebaselineLifecycleLabel(row)}
+                      </span>
+                    </td>
                     <td>
                       <input
                         value={row.name}
@@ -2580,7 +2683,12 @@ function MilestonesTab({
                         type="number"
                         step="0.01"
                         value={row.weight_pct}
-                        disabled={rebaseCategory === "delay"}
+                        disabled={weightLocked}
+                        title={
+                          weightLocked
+                            ? "Bobot terkunci untuk kategori keterlambatan atau fase selesai"
+                            : undefined
+                        }
                         onChange={(e) => {
                           const next = [...proposedPhases];
                           next[idx] = { ...row, weight_pct: e.target.value };
@@ -2592,6 +2700,12 @@ function MilestonesTab({
                       <td>
                         <button
                           type="button"
+                          disabled={deleteLocked}
+                          title={
+                            deleteLocked
+                              ? "Fase done / in progress / closed tidak boleh dihapus"
+                              : undefined
+                          }
                           onClick={() =>
                             setProposedPhases(proposedPhases.filter((_, i) => i !== idx))
                           }
@@ -2601,9 +2715,14 @@ function MilestonesTab({
                       </td>
                     )}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
+            <p className={weightTotalOk ? "text-muted" : "error"} style={{ marginTop: "0.5rem" }}>
+              Total bobot usulan: <strong>{proposedWeightTotal.toFixed(2)}%</strong> / 100%
+              {!weightTotalOk && " — sesuaikan bobot fase open sebelum ajuan."}
+            </p>
             {rebaseCategory === "scope_change" && (
               <button
                 type="button"
@@ -2618,6 +2737,8 @@ function MilestonesTab({
                       weight_pct: "0",
                       client_key: `new-${Date.now()}`,
                       sort_order: proposedPhases.length,
+                      can_delete: true,
+                      can_edit_weight: true,
                     },
                   ])
                 }
@@ -2641,7 +2762,7 @@ function MilestonesTab({
               <button
                 type="button"
                 className="primary"
-                disabled={rebaseBusy || !rebaseReason.trim()}
+                disabled={rebaseBusy || !rebaseReason.trim() || !weightTotalOk}
                 onClick={async () => {
                   setRebaseBusy(true);
                   setRebaseMsg("");
