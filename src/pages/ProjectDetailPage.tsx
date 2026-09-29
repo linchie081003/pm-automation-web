@@ -1,4 +1,5 @@
 import {
+  Children,
   FormEvent,
   Fragment,
   useCallback,
@@ -16,6 +17,7 @@ import {
   getErrorMessage,
   previewFile,
 } from "../api";
+import { UserNotice } from "../components/UserNotice";
 import { useAuth } from "../auth";
 import {
   ChartPanelToolbar,
@@ -60,6 +62,7 @@ type ProjectDetail = {
   planned_md?: number | null;
   sph_no?: string | null;
   project_manager?: string | null;
+  project_brief?: string | null;
   health: {
     spi: number | null;
     rag_overall: string | null;
@@ -117,19 +120,13 @@ function TabAlert({
   message?: string;
   variant?: "success" | "error" | "info";
 }) {
-  if (!message?.trim()) return null;
-  let v = variant;
-  if (!v) {
-    v =
-      message.startsWith("[") || message.includes("HTTP")
-        ? "error"
-        : "success";
-  }
-  return (
-    <div className={`alert alert--${v}`} role="status">
-      {message}
-    </div>
-  );
+  return <UserNotice message={message} variant={variant} />;
+}
+
+function TabNoticeStack({ children }: { children: ReactNode }) {
+  const items = Children.toArray(children).filter(Boolean);
+  if (!items.length) return null;
+  return <div className="tab-page-notices">{items}</div>;
 }
 
 const TAB_READONLY_MSG = {
@@ -139,11 +136,7 @@ const TAB_READONLY_MSG = {
 } as const;
 
 function TabReadOnlyNotice({ message }: { message: string }) {
-  return (
-    <div className="alert alert--info tab-readonly-notice" role="status">
-      {message}
-    </div>
-  );
+  return <UserNotice message={message} variant="info" className="tab-readonly-notice" />;
 }
 
 function priorPhasesReadOnly(detail: ProjectDetail): boolean {
@@ -3065,6 +3058,7 @@ function SphTab({
   const [deliveryItems, setDeliveryItems] = useState<DeliveryItemRow[]>([]);
   const [sphTotal, setSphTotal] = useState(0);
   const [paymentTerms, setPaymentTerms] = useState<PaymentTermRow[]>([]);
+  const [projectBrief, setProjectBrief] = useState("");
   const [msg, setMsg] = useState("");
   const load = () =>
     api<{
@@ -3154,6 +3148,12 @@ function SphTab({
       setPaymentTerms(mapPaymentTermsFromApi(s.payment_terms ?? []));
     });
   useEffect(() => {
+    api<{ project_brief?: string | null }>(`/projects/${projectId}`)
+      .then((p) => setProjectBrief(p.project_brief ?? ""))
+      .catch(() => setProjectBrief(""));
+  }, [projectId]);
+
+  useEffect(() => {
     setMethodology(projectMethodology);
   }, [projectMethodology]);
   useEffect(() => {
@@ -3228,6 +3228,10 @@ function SphTab({
     e.preventDefault();
     setMsg("");
     try {
+      await api(`/projects/${projectId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ project_brief: projectBrief.trim() || null }),
+      });
       await api(`/projects/${projectId}/sph`, {
         method: "PUT",
         body: JSON.stringify({
@@ -3403,6 +3407,20 @@ function SphTab({
                 value={form.sph_no}
                 onChange={(e) => setForm({ ...form, sph_no: e.target.value })}
               />
+            </div>
+            <div className="form-row sph-info-grid__full">
+              <label htmlFor="project-brief">Project brief</label>
+              <textarea
+                id="project-brief"
+                className="sph-info-input"
+                rows={4}
+                placeholder="Ringkasan proyek untuk overview laporan (weekly report PPTX)"
+                value={projectBrief}
+                onChange={(e) => setProjectBrief(e.target.value)}
+              />
+              <p className="form-hint" style={{ margin: "0.35rem 0 0" }}>
+                Dipakai di halaman Overview PPTX. Jika kosong, sistem memakai scope SPH.
+              </p>
             </div>
             <div className="form-row">
               <label htmlFor="sph-name">SPH name</label>
@@ -5069,19 +5087,60 @@ function scurveActualVisible(
   return point.date <= activeAnchor;
 }
 
-function smoothLinePath(xs: number[], ys: number[]): string {
+function straightLinePath(xs: number[], ys: number[]): string {
   if (!xs.length) return "";
   if (xs.length === 1) return `M ${xs[0]} ${ys[0]}`;
   let d = `M ${xs[0]} ${ys[0]}`;
-  for (let i = 0; i < xs.length - 1; i += 1) {
-    const x0 = xs[i];
-    const y0 = ys[i];
-    const x1 = xs[i + 1];
-    const y1 = ys[i + 1];
-    const mx = (x0 + x1) / 2;
-    d += ` C ${mx} ${y0}, ${mx} ${y1}, ${x1} ${y1}`;
+  for (let i = 1; i < xs.length; i += 1) {
+    d += ` L ${xs[i]} ${ys[i]}`;
   }
   return d;
+}
+
+const CHART_COLOR_PLANNED = "#2563eb";
+const CHART_COLOR_ACTUAL = "#b45309";
+
+function ChartInlineLegend({
+  x,
+  y,
+  items,
+}: {
+  x: number;
+  y: number;
+  items: { label: string; color: string }[];
+}) {
+  const rowH = 17;
+  const pad = 8;
+  const boxW = 148;
+  const boxH = pad * 2 + items.length * rowH - 4;
+  return (
+    <g className="chart-inline-legend" transform={`translate(${x}, ${y})`}>
+      <rect
+        x={0}
+        y={0}
+        width={boxW}
+        height={boxH}
+        rx={6}
+        className="chart-inline-legend__bg"
+      />
+      {items.map((it, i) => (
+        <g key={it.label} transform={`translate(${pad}, ${pad + i * rowH})`}>
+          <line
+            x1={0}
+            y1={5}
+            x2={20}
+            y2={5}
+            stroke={it.color}
+            strokeWidth={2.75}
+            strokeLinecap="round"
+          />
+          <text x={26} y={9} className="chart-inline-legend__label">
+            {it.label}
+          </text>
+        </g>
+      ))}
+    </g>
+  );
 }
 
 function ScurveChart({
@@ -5120,13 +5179,12 @@ function ScurveChart({
   );
   const y = (pct: number) => padT + chartH - (Math.min(pct, yMax) / yMax) * chartH;
   const plannedYs = plannedAll.map((p) => y(p.planned_pct));
-  const plannedPath = smoothLinePath(xs, plannedYs);
-  const plannedArea = `${plannedPath} L ${xs[xs.length - 1]} ${y(0)} L ${xs[0]} ${y(0)} Z`;
+  const plannedPath = straightLinePath(xs, plannedYs);
   const actualSeries = plannedAll.filter((p) => scurveActualVisible(p, activeAnchor ?? null));
   const actualXs = actualSeries.map((p) => xs[plannedAll.findIndex((x) => x.date === p.date)]);
   const actualYs = actualSeries.map((p) => y(p.actual_pct));
   const actualPath =
-    actualSeries.length > 0 ? smoothLinePath(actualXs, actualYs) : "";
+    actualSeries.length > 0 ? straightLinePath(actualXs, actualYs) : "";
   const gridSteps = [0, 25, 50, 75, 100];
   const fmtAnchor = (iso: string) => formatDisplayDate(iso);
   const labelEvery = n <= 12 ? 1 : Math.max(1, Math.ceil(n / 8));
@@ -5161,10 +5219,6 @@ function ScurveChart({
               Tanggal laporan aktif <strong>{anchorLabel}</strong>
             </span>
           </p>
-        </div>
-        <div className="scurve-panel__legend scurve-panel__legend--pills">
-          <span className="scurve-legend scurve-legend--planned">Planned (target)</span>
-          <span className="scurve-legend scurve-legend--actual">Actual</span>
         </div>
       </div>
       <ChartPanelToolbar
@@ -5203,14 +5257,10 @@ function ScurveChart({
         className="scurve-panel__chart scurve-panel__chart--executive"
         viewBox={`0 0 ${w} ${h}`}
         role="img"
-        aria-label="Grafik S-curve planned dan actual"
+        aria-label="Grafik garis S-curve planned dan actual"
         onMouseLeave={hideTip}
       >
         <defs>
-          <linearGradient id="scurvePlannedFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#2563eb" stopOpacity="0.28" />
-            <stop offset="100%" stopColor="#2563eb" stopOpacity="0.03" />
-          </linearGradient>
           <linearGradient id="scurveExecFrame" x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor="#f8fafc" />
             <stop offset="100%" stopColor="#ffffff" />
@@ -5253,6 +5303,14 @@ function ScurveChart({
         </text>
         <line x1={padL} y1={padT + chartH} x2={w - padR} y2={padT + chartH} className="scurve-axis" />
         <line x1={padL} y1={padT} x2={padL} y2={padT + chartH} className="scurve-axis" />
+        <ChartInlineLegend
+          x={w - padR - 152}
+          y={padT + 6}
+          items={[
+            { label: "Planned (target)", color: CHART_COLOR_PLANNED },
+            { label: "Actual", color: CHART_COLOR_ACTUAL },
+          ]}
+        />
         <g clipPath="url(#scurvePlotClip)">
           {activeIdx >= 0 && (
             <line
@@ -5263,12 +5321,12 @@ function ScurveChart({
               className="scurve-active-week-line"
             />
           )}
-          <path d={plannedArea} className="scurve-area-planned" fill="url(#scurvePlannedFill)" />
           <path d={plannedPath} className="scurve-line-planned" />
           {actualPath ? <path d={actualPath} className="scurve-line-actual" /> : null}
         </g>
         {plannedAll.map((p, i) => {
           const showActual = scurveActualVisible(p, activeAnchor ?? null);
+          const dev = p.actual_pct - p.planned_pct;
           const tipRows = [
             {
               legend: "Planned (target)",
@@ -5281,6 +5339,11 @@ function ScurveChart({
                     legend: "Actual",
                     value: `${p.actual_pct.toFixed(2)}%`,
                     tone: "actual" as const,
+                  },
+                  {
+                    legend: "Deviasi",
+                    value: formatDeviationPct(dev),
+                    tone: "neutral" as const,
                   },
                   {
                     legend: "SPI",
@@ -5300,6 +5363,9 @@ function ScurveChart({
             <g
               key={p.date}
               className="scurve-point-group"
+              tabIndex={0}
+              role="graphics-symbol"
+              aria-label={`Periode ${fmtAnchor(p.date)}: planned ${p.planned_pct.toFixed(1)}%`}
               onMouseEnter={(e) =>
                 showTip(e, { title: fmtAnchor(p.date), rows: tipRows })
               }
@@ -5312,10 +5378,11 @@ function ScurveChart({
               }
               onBlur={hideTip}
             >
-              <circle
-                cx={xs[i]}
-                cy={plannedYs[i]}
-                r={14}
+              <rect
+                x={xs[i] - (i === 0 || i === n - 1 ? 16 : 14)}
+                y={padT}
+                width={i === 0 || i === n - 1 ? 32 : 28}
+                height={chartH}
                 fill="transparent"
                 className="scurve-point-hit"
               />
@@ -5326,15 +5393,6 @@ function ScurveChart({
                 className="scurve-dot-planned scurve-dot-planned--ring"
               />
               <circle cx={xs[i]} cy={plannedYs[i]} r={2.5} className="scurve-dot-planned" />
-              <text
-                x={xs[i]}
-                y={Math.max(padT + 10, plannedYs[i] - 11)}
-                textAnchor="middle"
-                className="scurve-point-value scurve-point-value--planned"
-                pointerEvents="none"
-              >
-                {p.planned_pct.toFixed(1)}%
-              </text>
               {showActual && (
                 <>
                   <circle
@@ -5349,15 +5407,6 @@ function ScurveChart({
                     r={2.5}
                     className="scurve-dot-actual"
                   />
-                  <text
-                    x={xs[i]}
-                    y={Math.min(padT + chartH - 4, y(p.actual_pct) + 18)}
-                    textAnchor="middle"
-                    className="scurve-point-value scurve-point-value--actual"
-                    pointerEvents="none"
-                  >
-                    {p.actual_pct.toFixed(1)}%
-                  </text>
                 </>
               )}
               {(i % labelEvery === 0 || i === n - 1 || i === 0) && (
@@ -5377,11 +5426,6 @@ function ScurveChart({
       </svg>
       </ChartZoomViewport>
       <ChartPointTooltip tip={tip} />
-      <p className="text-muted scurve-panel__caption">
-        Kurva planned: {n} periode target · Actual: {actualSeries.length} titik (anchor aktif) ·
-        KPI di atas = nilai pada status date / anchor aktif
-        {statusDateReport ? ` (${statusLabel})` : ""}
-      </p>
     </div>
   );
 }
@@ -5397,7 +5441,7 @@ type MilestoneChartItem = {
 function MilestoneChart({
   items,
   asOf,
-  cutOff,
+  cutOff: _cutOff,
   statusDateReport,
   activeAnchor,
   projectCode,
@@ -5424,16 +5468,18 @@ function MilestoneChart({
   const rowH = 36;
   const padL = 168;
   const padR = 48;
-  const padT = 36;
-  const padB = 28;
+  const padB = 40;
   const chartW = 520;
-  const h = padT + padB + items.length * rowH;
+  const legendH = 46;
+  const plotTop = legendH + 10;
+  const h = plotTop + padB + items.length * rowH;
   const w = padL + chartW + padR;
   const barH = 10;
   const gap = 4;
   const x0 = padL;
   const barMaxW = chartW;
-  const fmtPct = (v: number) => `${Math.min(100, Math.max(0, v)).toFixed(0)}%`;
+  const plotBottom = h - padB;
+  const xAxisLabelY = h - 12;
   const exportBasename = `${(projectCode || "project").replace(/\s+/g, "_")}_milestone`;
   return (
     <div className="scurve-panel scurve-panel--pro milestone-chart-panel scurve-panel--executive">
@@ -5456,10 +5502,6 @@ function MilestoneChart({
             )}
           </p>
         </div>
-        <div className="scurve-panel__legend scurve-panel__legend--pills">
-          <span className="scurve-legend scurve-legend--planned">Target (planned)</span>
-          <span className="scurve-legend scurve-legend--actual">Actual</span>
-        </div>
       </div>
       <ChartPanelToolbar
         svgRef={svgRef}
@@ -5478,19 +5520,41 @@ function MilestoneChart({
         aria-label="Grafik actual vs target per milestone"
         onMouseLeave={hideTip}
       >
+        <ChartInlineLegend
+          x={x0}
+          y={8}
+          items={[
+            { label: "Target (planned)", color: CHART_COLOR_PLANNED },
+            { label: "Actual", color: CHART_COLOR_ACTUAL },
+          ]}
+        />
         {[0, 25, 50, 75, 100].map((g) => {
           const x = x0 + (g / 100) * barMaxW;
+          const anchor =
+            g === 0 ? "start" : g === 100 ? "end" : ("middle" as const);
+          const tx = g === 100 ? x0 + barMaxW : x;
           return (
             <g key={g}>
-              <line x1={x} y1={padT - 8} x2={x} y2={h - padB} className="scurve-grid-line" />
-              <text x={x} y={padT - 14} textAnchor="middle" className="scurve-axis-label">
+              <line
+                x1={x}
+                y1={plotTop}
+                x2={x}
+                y2={plotBottom}
+                className="scurve-grid-line"
+              />
+              <text
+                x={tx}
+                y={xAxisLabelY}
+                textAnchor={anchor}
+                className="scurve-axis-label scurve-axis-label--milestone-x"
+              >
                 {g}%
               </text>
             </g>
           );
         })}
         {items.map((m, i) => {
-          const yRow = padT + i * rowH + rowH / 2;
+          const yRow = plotTop + i * rowH + rowH / 2;
           const label =
             m.name.length > 22 ? `${m.name.slice(0, 21)}…` : m.name;
           const plannedW = (Math.min(m.planned_pct, 100) / 100) * barMaxW;
@@ -5554,25 +5618,12 @@ function MilestoneChart({
                 rx={2}
                 pointerEvents="none"
               />
-              <text
-                x={x0 + barMaxW + 6}
-                y={yRow + 4}
-                className="scurve-axis-label"
-                textAnchor="start"
-                pointerEvents="none"
-              >
-                {fmtPct(m.actual_pct)} / {fmtPct(m.planned_pct)}
-              </text>
             </g>
           );
         })}
       </svg>
       </ChartZoomViewport>
       <ChartPointTooltip tip={tip} />
-      <p className="text-muted scurve-panel__caption">
-        Actual vs target per milestone/phase pada status date report
-        {cutOff ? ` (cut-off ${formatDisplayDate(cutOff)})` : ""}
-      </p>
     </div>
   );
 }
@@ -5623,6 +5674,49 @@ function isFutureReportDate(reportDate: string, activeReportDate: string | null)
 function isPastReportDate(reportDate: string, activeReportDate: string | null): boolean {
   if (!reportDate || !activeReportDate) return false;
   return reportDate < activeReportDate;
+}
+
+type ReportPeriodStatus = "active" | "past" | "future";
+
+function reportPeriodStatus(
+  reportDate: string,
+  activeReportDate: string | null,
+): ReportPeriodStatus {
+  if (!activeReportDate) return "past";
+  if (reportDate > activeReportDate) return "future";
+  if (reportDate === activeReportDate) return "active";
+  return "past";
+}
+
+function canUseWeeklyReportActions(status: ReportPeriodStatus): boolean {
+  return status !== "future";
+}
+
+function reportPeriodStatusLabel(status: ReportPeriodStatus): string {
+  if (status === "active") return "Aktif";
+  if (status === "past") return "Selesai";
+  return "Mendatang";
+}
+
+function spiTone(spi: number): "ok" | "warn" | "bad" {
+  if (spi >= 1) return "ok";
+  if (spi >= 0.9) return "warn";
+  return "bad";
+}
+
+function weeklyPreviewMetricsLabel(source?: string): string {
+  switch (source) {
+    case "saved_report":
+      return "Laporan tersimpan (frozen)";
+    case "snapshot":
+      return "Snapshot progress periode";
+    case "active_live":
+      return "Live — selaras health proyek (hari ini)";
+    case "computed_historical":
+      return "Dihitung ulang periode historis";
+    default:
+      return "Progress periode";
+  }
 }
 
 type AuditLogRow = {
@@ -5930,6 +6024,9 @@ function DocumentsTab({
   };
   return (
     <div className="card">
+      <TabNoticeStack>
+        <TabAlert message={err} variant="error" />
+      </TabNoticeStack>
       <p>
         Repo dokumen:{" "}
         {detail?.document_repo_url ? (
@@ -5956,7 +6053,6 @@ function DocumentsTab({
           <> — belum dikonfigurasi; file tetap tersimpan lokal di PDC.</>
         )}
       </p>
-      <TabAlert message={err} variant="error" />
       {canUpload && (
         <form className="doc-upload-bar" onSubmit={upload}>
           <div className="form-row">
@@ -6068,6 +6164,10 @@ type WeeklyPreview = {
   target_week_start?: string;
   generate_progress_pct?: number;
   already_exists: boolean;
+  existing_report_id?: number | null;
+  metrics_source?: string;
+  matches_project_health?: boolean;
+  next_document_version?: number;
   project_code: string;
   project_name: string;
   baseline_version: number | null;
@@ -6160,6 +6260,7 @@ function ReportsTab({
   const [previewNotes, setPreviewNotes] = useState("");
   const [previewMitigation, setPreviewMitigation] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [previewLoadingDate, setPreviewLoadingDate] = useState<string | null>(null);
   const [progressBusy, setProgressBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [weeklyCfg, setWeeklyCfg] = useState({
@@ -6273,28 +6374,102 @@ function ReportsTab({
       loadMilestoneChart();
     }
   }, [projectId, kickoffTimelineConfirmed, inDelivery]);
-  const rejectFutureWeeklyPeriod = (): string | null => {
-    if (!targetWeek) return "Pilih tanggal laporan weekly report.";
-    if (isFutureReportDate(targetWeek, activeReportAnchor)) {
+  const rejectFutureWeeklyPeriod = (reportDate: string): string | null => {
+    if (!reportDate) return "Pilih tanggal laporan weekly report.";
+    if (isFutureReportDate(reportDate, activeReportAnchor)) {
       return `[Data tidak valid] Periode belum dimulai — pilih tanggal laporan pada atau sebelum minggu aktif (${formatDisplayDate(activeReportAnchor)}).`;
     }
     return null;
   };
-  const openPreview = async () => {
+
+  const anchorByReportDate = useMemo(() => {
+    const m = new Map<string, WeeklyReportPeriodOption>();
+    for (const a of anchorOptions) {
+      m.set(reportDateFromOption(a), a);
+    }
+    return m;
+  }, [anchorOptions]);
+
+  const reportByWeekStart = useMemo(() => {
+    const m = new Map<string, { id: number; has_pptx: boolean }>();
+    for (const r of reports) {
+      m.set(r.week_start, { id: r.id, has_pptx: Boolean(r.has_pptx) });
+    }
+    return m;
+  }, [reports]);
+
+  const openPreviewForReportDate = async (reportDate: string) => {
     setErr("");
-    const periodErr = rejectFutureWeeklyPeriod();
+    const periodErr = rejectFutureWeeklyPeriod(reportDate);
     if (periodErr) {
       setErr(periodErr);
       return;
     }
+    setPreviewLoadingDate(reportDate);
+    setTargetWeek(reportDate);
     try {
-      const qs = targetWeek ? `?anchor_date=${encodeURIComponent(targetWeek)}` : "";
+      const qs = `?anchor_date=${encodeURIComponent(reportDate)}`;
       const p = await api<WeeklyPreview>(`/projects/${projectId}/weekly-reports/preview${qs}`);
       setPreviewNotes(p.highlights_draft || p.notes || "");
       setPreviewMitigation("");
       setPreview(p);
     } catch (e) {
       setErr(getErrorMessage(e));
+    } finally {
+      setPreviewLoadingDate(null);
+    }
+  };
+
+  const openPreview = async () => {
+    const rd = targetWeek || activeReportAnchor;
+    if (!rd) {
+      setErr("Pilih periode weekly report terlebih dahulu.");
+      return;
+    }
+    await openPreviewForReportDate(rd);
+  };
+
+  const generateWeeklyDoc = async (reportDate: string, regenerate: boolean) => {
+    setErr("");
+    const periodErr = rejectFutureWeeklyPeriod(reportDate);
+    if (periodErr) {
+      setErr(periodErr);
+      return;
+    }
+    if (!inDelivery) return;
+    const verHint = regenerate ? " versi baru" : "";
+    if (
+      !window.confirm(
+        `Generate dokumen weekly report${verHint} untuk tanggal laporan ${formatDisplayDate(reportDate)} ke tab Documents?`,
+      )
+    ) {
+      return;
+    }
+    setGenerating(true);
+    try {
+      const res = await api<{ document_version?: number }>(
+        `/projects/${projectId}/weekly-reports/generate`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            anchor_date: reportDate,
+            regenerate,
+            notes: previewNotes.trim() || undefined,
+            mitigation_plan: previewMitigation.trim() || undefined,
+          }),
+        },
+      );
+      setTargetWeek(reportDate);
+      setMsg(
+        `Dokumen weekly report v${String(res.document_version ?? 1).padStart(2, "0")} tersimpan di Documents.`,
+      );
+      load();
+      loadScurve();
+      onProjectRefresh?.();
+    } catch (e) {
+      setErr(getErrorMessage(e));
+    } finally {
+      setGenerating(false);
     }
   };
   const saveProgressWeek = async () => {
@@ -6304,7 +6479,7 @@ function ReportsTab({
       );
       return;
     }
-    const periodErr = rejectFutureWeeklyPeriod();
+    const periodErr = rejectFutureWeeklyPeriod(targetWeek);
     if (periodErr) {
       setErr(periodErr);
       return;
@@ -6333,15 +6508,17 @@ function ReportsTab({
         method: "POST",
         body: JSON.stringify({
           anchor_date: preview.week_start,
+          regenerate: preview.already_exists,
           notes: previewNotes,
           mitigation_plan: previewMitigation.trim() || null,
         }),
       });
       setPreview(null);
       load();
+      loadScurve();
       onProjectRefresh?.();
       setErr("");
-      setMsg("Laporan digenerate dan disimpan. Lihat tab DOCUMENTS.");
+      setMsg("Dokumen weekly report tersimpan. Lihat tab DOCUMENTS.");
     } catch (e) {
       setErr(getErrorMessage(e));
     } finally {
@@ -6457,6 +6634,11 @@ function ReportsTab({
   };
   return (
     <div className="card">
+      <TabNoticeStack>
+        <TabAlert message={err} variant="error" />
+        <TabAlert message={scheduleMsg} />
+        <TabAlert message={msg} />
+      </TabNoticeStack>
       <section className="weekly-schedule-card">
         <h2 className="card-title">Weekly report & S-curve</h2>
         <p className="text-muted">
@@ -6477,7 +6659,6 @@ function ReportsTab({
             )}
           </p>
         )}
-        <TabAlert message={scheduleMsg} />
         <div className="weekly-schedule-panel sph-info-panel">
           <div className="sph-info-grid weekly-schedule-grid">
             <div className="form-row">
@@ -6661,53 +6842,158 @@ function ReportsTab({
           />
         )}
         {showScurveChart && chartView === "scurve" && scurve.length > 0 && (
-          <div className="scurve-table-wrap">
-            {activeReportAnchor && (
-              <p className="text-muted scurve-table-hint">
-                Baris highlight = minggu laporan aktif (tanggal laporan{" "}
-                {formatDisplayDate(activeReportAnchor)}).
+          <div className="scurve-period-table-wrap">
+            <div className="scurve-period-table__head">
+              <h3 className="subsection-title">Periode weekly report</h3>
+              <p className="text-muted scurve-period-table__subtitle">
+                Preview atau generate laporan per baris. Periode mendatang tidak dapat diproses
+                hingga periode dimulai.
               </p>
-            )}
-            <table className="data-table data-table--compact scurve-data-table">
-              <thead>
-                <tr>
-                  <th>Tanggal laporan</th>
-                  <th className="num">Planned %</th>
-                  <th className="num">Actual %</th>
-                  <th className="num">SPI</th>
-                </tr>
-              </thead>
-              <tbody>
-                {scurve.map((p) => (
-                  <tr
-                    key={p.date}
-                    className={
-                      activeReportAnchor && p.date === activeReportAnchor
-                        ? "scurve-data-table__row--active"
-                        : undefined
-                    }
-                  >
-                    <td>
-                      {formatDisplayDate(p.date)}
-                      {activeReportAnchor && p.date === activeReportAnchor && (
-                        <span className="scurve-active-badge">Aktif</span>
-                      )}
-                    </td>
-                    <td className="num">{Number(p.planned_pct).toFixed(2)}</td>
-                    <td className="num">{Number(p.actual_pct).toFixed(2)}</td>
-                    <td className="num">{Number(p.spi).toFixed(4)}</td>
+            </div>
+            <div className="scurve-period-table__scroll">
+              <table className="data-table scurve-period-table">
+                <thead>
+                  <tr>
+                    <th>Tanggal laporan</th>
+                    <th>Periode</th>
+                    <th>Status</th>
+                    <th className="num">Planned</th>
+                    <th className="num">Actual</th>
+                    <th className="num">SPI</th>
+                    <th>Laporan</th>
+                    <th className="scurve-period-table__actions-col">Aksi</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {scurve.map((p) => {
+                    const rd = p.date;
+                    const status = reportPeriodStatus(rd, activeReportAnchor);
+                    const actionsOk = canUseWeeklyReportActions(status) && inDelivery;
+                    const periodOpt = anchorByReportDate.get(rd);
+                    const periodLabel = periodOpt
+                      ? formatWeeklyPeriodOptionLabel(periodOpt)
+                      : formatDisplayDate(rd);
+                    const savedReport = reportByWeekStart.get(rd);
+                    const hasReport = Boolean(savedReport);
+                    const rowBusy = previewLoadingDate === rd;
+                    const spi = Number(p.spi);
+                    return (
+                      <tr
+                        key={rd}
+                        className={
+                          status === "active"
+                            ? "scurve-period-table__row scurve-period-table__row--active"
+                            : status === "future"
+                              ? "scurve-period-table__row scurve-period-table__row--future"
+                              : "scurve-period-table__row"
+                        }
+                      >
+                        <td className="scurve-period-table__date">
+                          <span className="scurve-period-table__date-main">
+                            {formatDisplayDate(rd)}
+                          </span>
+                        </td>
+                        <td className="scurve-period-table__period">{periodLabel}</td>
+                        <td>
+                          <span
+                            className={`scurve-period-status scurve-period-status--${status}`}
+                          >
+                            {reportPeriodStatusLabel(status)}
+                          </span>
+                        </td>
+                        <td className="num">{Number(p.planned_pct).toFixed(2)}%</td>
+                        <td className="num">{Number(p.actual_pct).toFixed(2)}%</td>
+                        <td className="num">
+                          <span className={`scurve-spi-pill scurve-spi-pill--${spiTone(spi)}`}>
+                            {spi.toFixed(4)}
+                          </span>
+                        </td>
+                        <td className="scurve-period-table__report">
+                          {savedReport ? (
+                            <span className="scurve-report-links">
+                              <a
+                                href={`/api/projects/${projectId}/weekly-reports/${savedReport.id}/download`}
+                                className="scurve-report-link"
+                                title="Unduh laporan Excel"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  void dl(
+                                    `/projects/${projectId}/weekly-reports/${savedReport.id}/download`,
+                                  );
+                                }}
+                              >
+                                XLS
+                              </a>
+                              {savedReport.has_pptx ? (
+                                <a
+                                  href={`/api/projects/${projectId}/weekly-reports/${savedReport.id}/download-pptx`}
+                                  className="scurve-report-link"
+                                  title="Unduh presentasi PowerPoint"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    void dl(
+                                      `/projects/${projectId}/weekly-reports/${savedReport.id}/download-pptx`,
+                                    );
+                                  }}
+                                >
+                                  PPTX
+                                </a>
+                              ) : null}
+                            </span>
+                          ) : (
+                            <span className="scurve-report-chip scurve-report-chip--none">
+                              Belum ada
+                            </span>
+                          )}
+                        </td>
+                        <td className="scurve-period-table__actions">
+                          <div className="scurve-row-actions">
+                            <button
+                              type="button"
+                              className="scurve-row-actions__btn"
+                              disabled={!actionsOk || rowBusy || generating}
+                              title={
+                                !inDelivery
+                                  ? "Weekly report aktif setelah fase delivery"
+                                  : status === "future"
+                                    ? "Periode belum dimulai"
+                                    : "Preview isi laporan minggu ini"
+                              }
+                              onClick={() => void openPreviewForReportDate(rd)}
+                            >
+                              {rowBusy ? "…" : "Preview"}
+                            </button>
+                            <button
+                              type="button"
+                              className="scurve-row-actions__btn scurve-row-actions__btn--primary"
+                              disabled={!actionsOk || rowBusy || generating}
+                              title={
+                                !inDelivery
+                                  ? "Weekly report aktif setelah fase delivery"
+                                  : status === "future"
+                                    ? "Periode belum dimulai"
+                                    : hasReport
+                                      ? "Buat versi dokumen baru di Documents"
+                                      : "Generate dokumen ke Documents"
+                              }
+                              onClick={() => void generateWeeklyDoc(rd, hasReport)}
+                            >
+                              {generating ? "…" : hasReport ? "Generate v+" : "Generate"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </section>
       <h2 className="card-title" style={{ marginTop: "1.5rem" }}>
         Weekly report
       </h2>
-      <TabAlert message={err} variant="error" />
-      <TabAlert message={msg} />
       <div className="weekly-report-controls">
         {!inDelivery && (
           <p className="text-muted">Weekly report & progress snapshot aktif setelah fase delivery.</p>
@@ -6760,120 +7046,133 @@ function ReportsTab({
           <button
             type="button"
             className="primary"
-            onClick={openPreview}
-            disabled={!inDelivery}
+            onClick={() => void openPreview()}
+            disabled={!inDelivery || (!targetWeek && !activeReportAnchor)}
           >
-            Preview / generate weekly report
+            Preview periode terpilih
           </button>
         </div>
       </div>
       {preview && (
-        <div className="modal-overlay" role="dialog" aria-modal="true">
-          <div className="modal-card modal-card--weekly-preview">
-            <h2 className="card-title">Preview weekly report</h2>
-            <p className="text-muted">
-              {preview.project_code} — {preview.project_name}
-            </p>
-            <p>
-              Tanggal laporan:{" "}
-              <strong>
-                {formatDisplayDate(
-                  preview.report_date ??
-                    preview.status_date_report ??
-                    preview.week_end ??
+        <div className="modal-overlay weekly-preview-overlay" role="dialog" aria-modal="true">
+          <div className="modal-card modal-card--weekly-preview weekly-preview-modal">
+            <header className="weekly-preview-modal__header">
+              <div>
+                <p className="weekly-preview-modal__kicker">Weekly progress report</p>
+                <h2 className="weekly-preview-modal__title">
+                  {preview.project_code} — {preview.project_name}
+                </h2>
+              </div>
+              <button
+                type="button"
+                className="weekly-preview-modal__close"
+                aria-label="Tutup"
+                onClick={() => setPreview(null)}
+              >
+                ×
+              </button>
+            </header>
+            <div className="weekly-preview-modal__scroll">
+            <div className="weekly-preview-modal__banner">
+              <div>
+                <span className="weekly-preview-modal__label">Tanggal laporan</span>
+                <strong>
+                  {formatDisplayDate(
+                    preview.report_date ?? preview.week_end ?? preview.week_start,
+                  )}
+                </strong>
+              </div>
+              <div>
+                <span className="weekly-preview-modal__label">Periode</span>
+                <strong>
+                  {formatStoredWeeklyPeriod(
                     preview.week_start,
-                )}
-              </strong>
-            </p>
-            <p>
-              Periode:{" "}
-              <strong>
-                {formatStoredWeeklyPeriod(
-                  preview.week_start,
-                  preview.week_end,
-                  preview.period_start ?? preview.target_week_start,
-                )}
-              </strong>
-              {preview.period_day_count != null && (
-                <span className="text-muted"> ({preview.period_day_count} hari)</span>
-              )}
-            </p>
-            <p className="text-muted">
-              Status date report:{" "}
-              <strong>
-                {formatDisplayDate(
-                  preview.status_date_report ??
-                    preview.health?.status_date ??
-                    preview.report_date ??
                     preview.week_end,
+                    preview.period_start ?? preview.target_week_start,
+                  )}
+                </strong>
+                {preview.period_day_count != null && (
+                  <span className="text-muted"> · {preview.period_day_count} hari</span>
                 )}
-              </strong>
+              </div>
+              <div>
+                <span className="weekly-preview-modal__label">Status date</span>
+                <strong>
+                  {formatDisplayDate(
+                    preview.status_date_report ??
+                      preview.health?.status_date ??
+                      preview.report_date ??
+                      preview.week_end,
+                  )}
+                </strong>
+              </div>
+            </div>
+            <p className="weekly-preview-modal__source">
+              <span className="weekly-preview-modal__source-pill">
+                {weeklyPreviewMetricsLabel(preview.metrics_source)}
+              </span>
+              {preview.matches_project_health && (
+                <span className="weekly-preview-modal__health-sync">
+                  Selaras dengan health proyek (hari ini)
+                </span>
+              )}
             </p>
             {preview.already_exists && (
               <TabAlert
-                message="Laporan minggu ini sudah ada; generate akan mengembalikan file yang sama (immutable)."
+                message={`Dokumen sudah pernah digenerate. Generate dari modal membuat versi v${String(preview.next_document_version ?? 2).padStart(2, "0")} di Documents.`}
                 variant="info"
               />
             )}
-            <div className="kpi-row weekly-preview-kpis" style={{ marginTop: "1rem" }}>
-              <div className="kpi-card">
-                <div className="kpi-label">Planned</div>
-                <div className="kpi-value">{preview.planned_pct}%</div>
+            <div className="weekly-preview-modal__kpis">
+              <div className="weekly-preview-kpi">
+                <span className="weekly-preview-kpi__label">Planned</span>
+                <span className="weekly-preview-kpi__value">
+                  {Number(preview.planned_pct).toFixed(2)}%
+                </span>
               </div>
-              <div className="kpi-card">
-                <div className="kpi-label">Actual</div>
-                <div className="kpi-value">{preview.actual_pct}%</div>
+              <div className="weekly-preview-kpi">
+                <span className="weekly-preview-kpi__label">Actual</span>
+                <span className="weekly-preview-kpi__value">
+                  {Number(preview.actual_pct).toFixed(2)}%
+                </span>
               </div>
-              <div className="kpi-card">
-                <div className="kpi-label">Deviasi</div>
-                <div
-                  className={`kpi-value ${
+              <div className="weekly-preview-kpi">
+                <span className="weekly-preview-kpi__label">Deviasi</span>
+                <span
+                  className={`weekly-preview-kpi__value ${
                     (preview.deviation_pct ?? preview.deviation_pp ?? 0) < 0
-                      ? "kpi-value--warn"
-                      : "kpi-value--ok"
+                      ? "weekly-preview-kpi__value--warn"
+                      : "weekly-preview-kpi__value--ok"
                   }`}
                 >
                   {formatDeviationPct(preview.deviation_pct ?? preview.deviation_pp)}
-                </div>
-                <div className="kpi-hint">
-                  RAG{" "}
-                  <span
-                    className={`rag rag-${preview.rag_deviation ?? preview.rag_gap ?? preview.rag_overall}`}
-                  >
-                    {ragDisplayLabel(
-                      preview.rag_deviation ?? preview.rag_gap ?? preview.rag_overall,
-                    )}
-                  </span>
-                  {preview.gap_pp != null && (
-                    <span className="text-muted"> · gap {preview.gap_pp.toFixed(2)}%</span>
-                  )}
-                </div>
+                </span>
               </div>
-              <div className="kpi-card">
-                <div className="kpi-label">SPI</div>
-                <div className="kpi-value">{preview.spi}</div>
+              <div className="weekly-preview-kpi">
+                <span className="weekly-preview-kpi__label">SPI</span>
+                <span
+                  className={`weekly-preview-kpi__value weekly-preview-kpi__value--spi scurve-spi-pill scurve-spi-pill--${spiTone(Number(preview.spi ?? 0))}`}
+                >
+                  {Number(preview.spi ?? 0).toFixed(4)}
+                </span>
               </div>
             </div>
-            <p>
-              RAG keseluruhan:{" "}
+            <div className="weekly-preview-modal__meta">
               <span className={`rag rag-${preview.rag_overall}`}>
-                {ragDisplayLabel(preview.rag_overall)}
+                RAG {ragDisplayLabel(preview.rag_overall)}
               </span>
               {preview.rag_schedule && (
-                <>
-                  {" "}
-                  · Schedule{" "}
-                  <span className={`rag rag-${preview.rag_schedule}`}>
-                    {ragDisplayLabel(preview.rag_schedule)}
-                  </span>
-                </>
-              )}{" "}
-              · Baseline v{preview.baseline_version ?? "—"} · {preview.task_count} task ·{" "}
-              {preview.milestone_count} milestone
-            </p>
-            <p className="text-muted">
-              Output: {preview.output_formats.map((f) => f.toUpperCase()).join(" + ")}
-            </p>
+                <span className={`rag rag-${preview.rag_schedule}`}>
+                  Schedule {ragDisplayLabel(preview.rag_schedule)}
+                </span>
+              )}
+              <span className="text-muted">
+                Baseline v{preview.baseline_version ?? "—"} · {preview.task_count} task ·{" "}
+                {preview.milestone_count} milestone ·{" "}
+                {preview.output_formats.map((f) => f.toUpperCase()).join(" + ")}
+              </span>
+            </div>
+            <div className="weekly-preview-modal__body">
             <section className="weekly-preview-block">
               <h3 className="weekly-preview-block__title">GAP phase timeline</h3>
               {preview.phase_gaps?.length ? (
@@ -6970,6 +7269,8 @@ function ReportsTab({
                 )}
               </section>
             </div>
+            </div>
+            <footer className="weekly-preview-modal__footer">
             <div className="form-row">
               <label htmlFor="wr-mitigation">Mitigasi mengejar plan</label>
               <p className="text-muted form-hint">
@@ -7004,40 +7305,19 @@ function ReportsTab({
                 disabled={generating}
                 onClick={confirmGenerate}
               >
-                OK — Simpan ke Documents
+                {preview.already_exists
+                  ? `Generate dokumen v${String(preview.next_document_version ?? 2).padStart(2, "0")}`
+                  : "Generate dokumen ke Documents"}
               </button>
               <button type="button" onClick={() => setPreview(null)} disabled={generating}>
-                Batal
+                Tutup
               </button>
+            </div>
+            </footer>
             </div>
           </div>
         </div>
       )}
-      <ul>
-        {reports.map((r) => (
-          <li key={r.id}>
-            Periode: {r.period_label ?? `${r.week_start} — ${r.week_end}`}{" "}
-            <button
-              type="button"
-              className="link-button"
-              onClick={() => dl(`/projects/${projectId}/weekly-reports/${r.id}/download`)}
-            >
-              XLS
-            </button>{" "}
-            {r.has_pptx && (
-              <button
-                type="button"
-                className="link-button"
-                onClick={() =>
-                  dl(`/projects/${projectId}/weekly-reports/${r.id}/download-pptx`)
-                }
-              >
-                PPTX
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

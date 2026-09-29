@@ -43,6 +43,15 @@ function parseDetailField(detail: unknown): string {
   }
 }
 
+function localizeApiDetail(core: string): string {
+  const key = core.trim();
+  const labels: Record<string, string> = {
+    "File missing": "Berkas laporan tidak ada di server",
+    "File missing on disk": "Berkas dokumen tidak ada di server",
+  };
+  return labels[key] ?? core;
+}
+
 /** Build user-facing message from HTTP error response. */
 export function formatApiError(
   status: number,
@@ -61,6 +70,8 @@ export function formatApiError(
   } else if (typeof body === "string" && body.trim()) {
     core = body.trim().slice(0, 300);
   }
+
+  core = localizeApiDetail(core);
 
   const statusHint =
     status === 401

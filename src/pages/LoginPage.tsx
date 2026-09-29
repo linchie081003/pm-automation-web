@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Navigate } from "react-router-dom";
+import { UserNotice } from "../components/UserNotice";
 import { useAuth } from "../auth";
 
 export default function LoginPage() {
@@ -46,7 +47,7 @@ export default function LoginPage() {
             required
           />
         </div>
-        {error && <div className="alert alert--error">{error}</div>}
+        {error && <UserNotice message={error} variant="error" />}
         <button type="submit" className="primary">
           Masuk
         </button>

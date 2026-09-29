@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, getErrorMessage } from "../api";
+import { UserNotice } from "../components/UserNotice";
 import { formatProjectPhase } from "../lib/projectPhase";
 
 export default function HomePage() {
@@ -28,7 +29,7 @@ export default function HomePage() {
       <p className="text-muted page-lead">
         Proyek sedang berjalan (Kick Off ke atas). Fase SPH tidak ditampilkan di sini.
       </p>
-      {err && <div className="alert alert--error">{err}</div>}
+      {err && <UserNotice message={err} variant="error" />}
       <div className="kpi-row">
         <div className="kpi-card">
           <div className="kpi-label">Proyek aktif</div>

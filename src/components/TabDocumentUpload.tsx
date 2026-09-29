@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 
 import { getErrorMessage, uploadProjectDocument } from "../api";
+import { UserNotice } from "./UserNotice";
 import { formatDisplayDate } from "../lib/formatDate";
 import { useAuth } from "../auth";
 
@@ -81,11 +82,7 @@ export function TabDocumentUpload({
     <section className="card tab-doc-upload" style={{ marginTop: "1rem" }}>
       <h3 className="card-title">{title}</h3>
       {hint && <p className="text-muted form-hint">{hint}</p>}
-      {msg && (
-        <div className={`alert alert--${msgOk ? "success" : "error"}`} role="status">
-          {msg}
-        </div>
-      )}
+      {msg && <UserNotice message={msg} variant={msgOk ? "success" : "error"} />}
       {canUpload && (
         <form className="doc-upload-bar" onSubmit={upload}>
           <div className="form-row">
