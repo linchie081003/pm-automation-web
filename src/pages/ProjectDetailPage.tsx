@@ -18,6 +18,10 @@ import {
   previewFile,
 } from "../api";
 import { UserNotice } from "../components/UserNotice";
+import {
+  RebaselineDiffView,
+  type RebaselineDiffPayload,
+} from "../components/RebaselineDiffView";
 import { useAuth } from "../auth";
 import {
   ChartPanelToolbar,
@@ -327,6 +331,8 @@ export default function ProjectDetailPage() {
           timelineStartEditable={timelineProjectStartEditable(detail)}
           structureEditable={milestoneStructureEditable(detail)}
           progressEditable={milestoneProgressEditable(detail)}
+          deliveryStartedAt={detail.delivery_started_at ?? null}
+          currentPhase={detail.current_phase}
           onProjectRefresh={load}
         />
       )}
@@ -1965,6 +1971,16 @@ function TimelineGantt({
   );
 }
 
+type ProposedPhaseRow = {
+  name: string;
+  start_date: string;
+  target_date: string;
+  weight_pct: string;
+  milestone_id?: number | null;
+  client_key?: string;
+  sort_order: number;
+};
+
 function MilestonesTab({
   projectId,
   refreshKey,
@@ -1973,6 +1989,8 @@ function MilestonesTab({
   timelineStartEditable,
   structureEditable,
   progressEditable,
+  deliveryStartedAt,
+  currentPhase,
   onProjectRefresh,
 }: {
   projectId: number;
@@ -1982,6 +2000,8 @@ function MilestonesTab({
   timelineStartEditable: boolean;
   structureEditable: boolean;
   progressEditable: boolean;
+  deliveryStartedAt: string | null;
+  currentPhase: string;
   onProjectRefresh?: () => void;
 }) {
   const [projectStartInput, setProjectStartInput] = useState(
@@ -1996,11 +2016,24 @@ function MilestonesTab({
   const [rebaseReason, setRebaseReason] = useState("");
   const [reqId, setReqId] = useState<number | null>(null);
   const [rebaselineOptIn, setRebaselineOptIn] = useState(false);
+  const [rebaseCategory, setRebaseCategory] = useState<"delay" | "scope_change">("delay");
+  const [rebaseEffectiveFrom, setRebaseEffectiveFrom] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
+  const [proposedPhases, setProposedPhases] = useState<ProposedPhaseRow[]>([]);
+  const [rebasePreviewPayload, setRebasePreviewPayload] = useState<RebaselineDiffPayload | null>(
+    null,
+  );
+  const [rebaseMsg, setRebaseMsg] = useState("");
+  const [rebaseBusy, setRebaseBusy] = useState(false);
   const behind =
     (health.actual_progress_pct ?? 0) < (health.planned_progress_pct ?? 0) - 0.01;
   const ragOk = health.rag_overall === "yellow" || health.rag_overall === "red";
-  const rebaselineEligible = behind && ragOk;
-  const rebaselineEnabled = rebaselineOptIn && rebaselineEligible;
+  const delayEligible = behind && ragOk;
+  const scopeEligible =
+    !!deliveryStartedAt || currentPhase === "in_delivery" || currentPhase === "bast";
+  const categoryEligible = rebaseCategory === "delay" ? delayEligible : scopeEligible;
+  const rebaselineEnabled = rebaselineOptIn && categoryEligible;
   const { can } = useAuth();
   const canWriteStructure = can("milestones.write") && structureEditable;
   const [items, setItems] = useState<MilestoneRow[]>([]);
@@ -2024,6 +2057,70 @@ function MilestonesTab({
   useEffect(() => {
     load();
   }, [load, refreshKey]);
+
+  const seedProposedFromPreview = useCallback(
+    (seed: Array<Record<string, unknown>>) => {
+      setProposedPhases(
+        seed.map((row, i) => ({
+          name: String(row.name ?? ""),
+          start_date: row.start_date ? String(row.start_date).slice(0, 10) : "",
+          target_date: row.target_date ? String(row.target_date).slice(0, 10) : "",
+          weight_pct: String(row.weight_pct ?? "0"),
+          milestone_id: typeof row.milestone_id === "number" ? row.milestone_id : null,
+          sort_order: typeof row.sort_order === "number" ? row.sort_order : i,
+        })),
+      );
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!rebaselineOptIn) return;
+    setRebaseMsg("");
+    api<{
+      seed_from_live: Array<Record<string, unknown>>;
+      eligibility: { delay: boolean; scope_change: boolean };
+    }>(`/projects/${projectId}/rebaseline/preview`)
+      .then((data) => {
+        seedProposedFromPreview(data.seed_from_live);
+        if (rebaseCategory === "delay" && !data.eligibility.delay && data.eligibility.scope_change) {
+          setRebaseCategory("scope_change");
+        }
+      })
+      .catch((e) => setRebaseMsg(getErrorMessage(e)));
+  }, [rebaselineOptIn, projectId, refreshKey, seedProposedFromPreview]);
+
+  const proposedPhasesBody = () =>
+    proposedPhases.map((p) => ({
+      name: p.name,
+      start_date: p.start_date || null,
+      target_date: p.target_date || null,
+      weight_pct: parseFloat(p.weight_pct) || 0,
+      milestone_id: p.milestone_id ?? null,
+      client_key: p.client_key ?? null,
+      sort_order: p.sort_order,
+    }));
+
+  const runRebaseValidate = async () => {
+    setRebaseBusy(true);
+    setRebaseMsg("");
+    try {
+      const payload = await api<RebaselineDiffPayload>(`/projects/${projectId}/rebaseline/validate`, {
+        method: "POST",
+        body: JSON.stringify({
+          category: rebaseCategory,
+          effective_from: rebaseEffectiveFrom,
+          proposed_phases: proposedPhasesBody(),
+        }),
+      });
+      setRebasePreviewPayload(payload);
+    } catch (e) {
+      setRebasePreviewPayload(null);
+      setRebaseMsg(getErrorMessage(e));
+    } finally {
+      setRebaseBusy(false);
+    }
+  };
 
   const syncFromClickUp = async () => {
     setSyncMsg("");
@@ -2377,23 +2474,164 @@ function MilestonesTab({
       <div style={{ marginTop: "1.5rem" }} className="card">
         <h3 className="card-title">Rebaseline schedule</h3>
         <p className="text-muted">
-          Aktifkan opsi rebaseline hanya jika diperlukan. Aturan: actual di bawah target dan RAG
-          kuning/merah (baseline resmi tetap berlaku).
+          Usulan jadwal disimpan di pengajuan; milestone live baru berubah setelah disetujui.
+          Keterlambatan: actual di bawah target + RAG kuning/merah. Perubahan scope: tersedia saat
+          delivery.
         </p>
         <label className="rebaseline-toggle">
           <input
             type="checkbox"
             checked={rebaselineOptIn}
             onChange={(e) => setRebaselineOptIn(e.target.checked)}
-            disabled={!rebaselineEligible}
+            disabled={!delayEligible && !scopeEligible}
           />{" "}
           Enable rebaseline schedule
         </label>
-        {!rebaselineEligible && (
+        {!delayEligible && !scopeEligible && (
           <p className="text-muted">Rebaseline belum memenuhi syarat untuk kondisi proyek saat ini.</p>
+        )}
+        {rebaselineOptIn && (
+          <>
+            <div className="form-row" style={{ marginTop: "0.75rem" }}>
+              <span>Kategori alasan</span>
+              <label>
+                <input
+                  type="radio"
+                  name="rebase-cat"
+                  checked={rebaseCategory === "delay"}
+                  disabled={!delayEligible}
+                  onChange={() => setRebaseCategory("delay")}
+                />{" "}
+                Keterlambatan
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="rebase-cat"
+                  checked={rebaseCategory === "scope_change"}
+                  disabled={!scopeEligible}
+                  onChange={() => setRebaseCategory("scope_change")}
+                />{" "}
+                Perubahan scope
+              </label>
+            </div>
+            <div className="form-row" style={{ maxWidth: "16rem" }}>
+              <label htmlFor="rebase-eff">Effective from</label>
+              <input
+                id="rebase-eff"
+                type="date"
+                value={rebaseEffectiveFrom}
+                onChange={(e) => setRebaseEffectiveFrom(e.target.value)}
+              />
+            </div>
+          </>
         )}
         {rebaselineEnabled && (
           <>
+            <h4 className="subsection-title">Usulan fase (phase)</h4>
+            <table className="compact-table">
+              <thead>
+                <tr>
+                  <th>Nama</th>
+                  <th>Start</th>
+                  <th>Target</th>
+                  <th className="num">Bobot %</th>
+                  {rebaseCategory === "scope_change" && <th />}
+                </tr>
+              </thead>
+              <tbody>
+                {proposedPhases.map((row, idx) => (
+                  <tr key={row.milestone_id ?? row.client_key ?? idx}>
+                    <td>
+                      <input
+                        value={row.name}
+                        disabled={rebaseCategory === "delay"}
+                        onChange={(e) => {
+                          const next = [...proposedPhases];
+                          next[idx] = { ...row, name: e.target.value };
+                          setProposedPhases(next);
+                        }}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="date"
+                        value={row.start_date}
+                        onChange={(e) => {
+                          const next = [...proposedPhases];
+                          next[idx] = { ...row, start_date: e.target.value };
+                          setProposedPhases(next);
+                        }}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="date"
+                        value={row.target_date}
+                        onChange={(e) => {
+                          const next = [...proposedPhases];
+                          next[idx] = { ...row, target_date: e.target.value };
+                          setProposedPhases(next);
+                        }}
+                      />
+                    </td>
+                    <td className="num">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={row.weight_pct}
+                        disabled={rebaseCategory === "delay"}
+                        onChange={(e) => {
+                          const next = [...proposedPhases];
+                          next[idx] = { ...row, weight_pct: e.target.value };
+                          setProposedPhases(next);
+                        }}
+                      />
+                    </td>
+                    {rebaseCategory === "scope_change" && (
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setProposedPhases(proposedPhases.filter((_, i) => i !== idx))
+                          }
+                        >
+                          Hapus
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {rebaseCategory === "scope_change" && (
+              <button
+                type="button"
+                style={{ marginTop: "0.5rem" }}
+                onClick={() =>
+                  setProposedPhases([
+                    ...proposedPhases,
+                    {
+                      name: "Fase baru",
+                      start_date: "",
+                      target_date: "",
+                      weight_pct: "0",
+                      client_key: `new-${Date.now()}`,
+                      sort_order: proposedPhases.length,
+                    },
+                  ])
+                }
+              >
+                Tambah fase
+              </button>
+            )}
+            <div className="btn-group" style={{ marginTop: "0.75rem" }}>
+              <button type="button" disabled={rebaseBusy} onClick={() => void runRebaseValidate()}>
+                Pratinjau diff
+              </button>
+            </div>
+            {rebasePreviewPayload && <RebaselineDiffView payload={rebasePreviewPayload} />}
+            {rebaseMsg && <p className="error">{rebaseMsg}</p>}
             <textarea
               placeholder="Alasan rebaseline"
               value={rebaseReason}
@@ -2403,15 +2641,30 @@ function MilestonesTab({
               <button
                 type="button"
                 className="primary"
+                disabled={rebaseBusy || !rebaseReason.trim()}
                 onClick={async () => {
-                  const res = await api<{ id: number }>(
-                    `/projects/${projectId}/rebaseline/request`,
-                    {
-                      method: "POST",
-                      body: JSON.stringify({ reason: rebaseReason, proposed_changes: {} }),
-                    },
-                  );
-                  setReqId(res.id);
+                  setRebaseBusy(true);
+                  setRebaseMsg("");
+                  try {
+                    const res = await api<{ id: number }>(
+                      `/projects/${projectId}/rebaseline/request`,
+                      {
+                        method: "POST",
+                        body: JSON.stringify({
+                          reason: rebaseReason,
+                          category: rebaseCategory,
+                          effective_from: rebaseEffectiveFrom,
+                          proposed_phases: proposedPhasesBody(),
+                        }),
+                      },
+                    );
+                    setReqId(res.id);
+                    setRebaseMsg("Pengajuan rebaseline tersimpan.");
+                  } catch (e) {
+                    setRebaseMsg(getErrorMessage(e));
+                  } finally {
+                    setRebaseBusy(false);
+                  }
                 }}
               >
                 Ajukan rebaseline
@@ -2425,6 +2678,7 @@ function MilestonesTab({
                     method: "POST",
                     body: JSON.stringify({ client_acknowledged: true }),
                   });
+                  setRebaseMsg("Kesepakatan klien ditandai.");
                 }}
               >
                 Tandai kesepakatan klien

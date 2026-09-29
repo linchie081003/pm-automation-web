@@ -16,6 +16,7 @@ import DashboardPage from "./pages/DashboardPage";
 import ExecutivePage from "./pages/ExecutivePage";
 
 import ApprovalsPage from "./pages/ApprovalsPage";
+import RebaselineApprovalsPage from "./pages/RebaselineApprovalsPage";
 
 import ConfigHubPage from "./pages/ConfigHubPage";
 
@@ -97,6 +98,17 @@ function Shell({ children }: { children: React.ReactNode }) {
 
           )}
 
+          {can("rebaseline.approve") && (
+
+            <Link
+              className={loc.pathname === "/rebaseline-approvals" ? "active" : ""}
+              to="/rebaseline-approvals"
+            >
+              Rebaseline
+            </Link>
+
+          )}
+
           {showConfig && (
 
             <Link className={configActive ? "active" : ""} to="/config">
@@ -159,6 +171,8 @@ export default function App() {
                 <Route path="/projects/:id" element={<ProjectDetailPage />} />
 
                 <Route path="/approvals" element={<ApprovalsPage />} />
+
+                <Route path="/rebaseline-approvals" element={<RebaselineApprovalsPage />} />
 
                 <Route path="/config" element={<ConfigHubPage />} />
                 <Route path="/setting" element={<Navigate to="/config" replace />} />
