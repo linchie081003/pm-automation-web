@@ -5158,7 +5158,7 @@ function ScurveChart({
               Status date <strong>{statusLabel}</strong>
             </span>
             <span className="scurve-meta-pill">
-              Active anchor <strong>{anchorLabel}</strong>
+              Tanggal laporan aktif <strong>{anchorLabel}</strong>
             </span>
           </p>
         </div>
@@ -5451,7 +5451,7 @@ function MilestoneChart({
             </span>
             {activeAnchor && (
               <span className="scurve-meta-pill">
-                Active anchor <strong>{anchorLabel}</strong>
+                Tanggal laporan aktif <strong>{anchorLabel}</strong>
               </span>
             )}
           </p>
@@ -5577,14 +5577,52 @@ function MilestoneChart({
   );
 }
 
-function isFutureWeeklyAnchor(anchor: string, activeAnchor: string | null): boolean {
-  if (!anchor || !activeAnchor) return false;
-  return anchor > activeAnchor;
+type WeeklyReportPeriodOption = {
+  report_date?: string;
+  anchor_date: string;
+  period_start?: string;
+  cut_off_date: string;
+};
+
+function reportDateFromOption(a: WeeklyReportPeriodOption): string {
+  return a.report_date ?? a.anchor_date;
 }
 
-function isPastWeeklyAnchor(anchor: string, activeAnchor: string | null): boolean {
-  if (!anchor || !activeAnchor) return false;
-  return anchor < activeAnchor;
+/** Matches backend display_period_day_count (inclusive calendar days). */
+function displayPeriodDayCount(periodLengthDays: number): number {
+  return Math.max(1, periodLengthDays + 1);
+}
+
+function formatWeeklyPeriodOptionLabel(a: WeeklyReportPeriodOption): string {
+  const rd = reportDateFromOption(a);
+  const ps = a.period_start ?? rd;
+  if (a.period_start && a.cut_off_date > rd) {
+    return `${formatDisplayDate(ps)} – ${formatDisplayDate(rd)} (cut-off ${formatDisplayDate(a.cut_off_date)})`;
+  }
+  return `${formatDisplayDate(ps)} – ${formatDisplayDate(rd)}`;
+}
+
+function formatStoredWeeklyPeriod(
+  weekStart: string,
+  weekEnd: string,
+  periodStart?: string | null,
+): string {
+  if (weekEnd > weekStart && (!periodStart || periodStart === weekStart)) {
+    return `${formatDisplayDate(weekStart)} s/d ${formatDisplayDate(weekEnd)}`;
+  }
+  const ps = periodStart ?? weekStart;
+  const rd = weekEnd >= weekStart ? weekEnd : weekStart;
+  return `${formatDisplayDate(ps)} – ${formatDisplayDate(rd)}`;
+}
+
+function isFutureReportDate(reportDate: string, activeReportDate: string | null): boolean {
+  if (!reportDate || !activeReportDate) return false;
+  return reportDate > activeReportDate;
+}
+
+function isPastReportDate(reportDate: string, activeReportDate: string | null): boolean {
+  if (!reportDate || !activeReportDate) return false;
+  return reportDate < activeReportDate;
 }
 
 type AuditLogRow = {
@@ -6021,9 +6059,12 @@ function DocumentsTab({
 type WeeklyPreview = {
   week_start: string;
   week_end: string;
+  report_date?: string;
   cut_off_date?: string;
   status_date_report?: string;
   period_start?: string;
+  period_length_days?: number;
+  period_day_count?: number;
   target_week_start?: string;
   generate_progress_pct?: number;
   already_exists: boolean;
@@ -6112,9 +6153,7 @@ function ReportsTab({
   const [scurve, setScurve] = useState<
     { date: string; planned_pct: number; actual_pct: number; spi: number }[]
   >([]);
-  const [anchorOptions, setAnchorOptions] = useState<
-    { anchor_date: string; cut_off_date: string }[]
-  >([]);
+  const [anchorOptions, setAnchorOptions] = useState<WeeklyReportPeriodOption[]>([]);
   const [targetWeek, setTargetWeek] = useState("");
   const [err, setErr] = useState("");
   const [preview, setPreview] = useState<WeeklyPreview | null>(null);
@@ -6141,11 +6180,18 @@ function ReportsTab({
     as_of: string | null;
     cut_off_date: string | null;
     status_date_report?: string | null;
+    active_report_date?: string | null;
     active_anchor_date?: string | null;
     items: MilestoneChartItem[];
   }>({ as_of: null, cut_off_date: null, items: [] });
   const [targetAnchors, setTargetAnchors] = useState<
-    { anchor_date: string; cut_off_date: string; planned_cumulative_pct?: number }[]
+    {
+      report_date?: string;
+      period_start?: string;
+      anchor_date: string;
+      cut_off_date: string;
+      planned_cumulative_pct?: number;
+    }[]
   >([]);
   const [scheduleMsg, setScheduleMsg] = useState("");
   const loadScurve = () =>
@@ -6168,45 +6214,55 @@ function ReportsTab({
   useEffect(() => {
     load().catch((e) => setErr(getErrorMessage(e)));
     api<{
-      weekly_report_anchor_weekday: number;
-      weekly_report_cutoff_offset_days: number;
+      weekly_report_anchor_weekday?: number;
+      weekly_report_cutoff_offset_days?: number;
       weekly_report_first_anchor_date?: string | null;
+      report_weekday?: number;
+      period_length_days?: number;
+      first_report_date?: string | null;
     }>(`/projects/${projectId}`)
       .then((p) =>
         setWeeklyCfg({
-          weekly_report_anchor_weekday: p.weekly_report_anchor_weekday ?? 4,
-          weekly_report_cutoff_offset_days: p.weekly_report_cutoff_offset_days ?? 0,
-          weekly_report_first_anchor_date: toDateInputValue(p.weekly_report_first_anchor_date),
+          weekly_report_anchor_weekday: p.report_weekday ?? p.weekly_report_anchor_weekday ?? 4,
+          weekly_report_cutoff_offset_days:
+            p.period_length_days ?? p.weekly_report_cutoff_offset_days ?? 0,
+          weekly_report_first_anchor_date: toDateInputValue(
+            p.first_report_date ?? p.weekly_report_first_anchor_date,
+          ),
         }),
       )
       .catch(() => {});
     const loadAnchorMeta = () =>
       api<{
-        anchors: { anchor_date: string; cut_off_date: string }[];
-        anchors_started?: { anchor_date: string; cut_off_date: string }[];
+        anchors: WeeklyReportPeriodOption[];
+        anchors_started?: WeeklyReportPeriodOption[];
         project_start_date?: string | null;
         schedule_end?: string | null;
+        active_report_date?: string | null;
         active_anchor_date?: string | null;
         status_date_report?: string | null;
         active_period_start?: string | null;
+        min_first_report_date?: string | null;
         min_first_anchor_date?: string | null;
       }>(`/projects/${projectId}/schedule/report-anchors`)
         .then((r) => {
           const full = r.anchors ?? [];
           const started = r.anchors_started ?? full;
-          setActiveReportAnchor(r.active_anchor_date ?? null);
+          setActiveReportAnchor(r.active_report_date ?? r.active_anchor_date ?? null);
           setStatusDateReport(r.status_date_report ?? null);
           setActivePeriodStart(r.active_period_start ?? null);
           setAnchorMeta({
             project_start_date: r.project_start_date ?? null,
             schedule_end: r.schedule_end ?? null,
-            min_first_anchor_date: r.min_first_anchor_date ?? null,
+            min_first_anchor_date: r.min_first_report_date ?? r.min_first_anchor_date ?? null,
           });
           setAnchorOptions(full);
           if (started.length) {
             const today = new Date().toISOString().slice(0, 10);
-            const past = started.filter((a) => a.anchor_date <= today);
-            const pick = past.length ? past[past.length - 1].anchor_date : started[0].anchor_date;
+            const past = started.filter((a) => reportDateFromOption(a) <= today);
+            const pick = past.length
+              ? reportDateFromOption(past[past.length - 1])
+              : reportDateFromOption(started[0]);
             setTargetWeek((prev) => prev || pick);
           }
         })
@@ -6218,9 +6274,9 @@ function ReportsTab({
     }
   }, [projectId, kickoffTimelineConfirmed, inDelivery]);
   const rejectFutureWeeklyPeriod = (): string | null => {
-    if (!targetWeek) return "Pilih tanggal anchor weekly report.";
-    if (isFutureWeeklyAnchor(targetWeek, activeReportAnchor)) {
-      return `[Data tidak valid] Periode belum dimulai — pilih anchor pada atau sebelum minggu aktif (${formatDisplayDate(activeReportAnchor)}).`;
+    if (!targetWeek) return "Pilih tanggal laporan weekly report.";
+    if (isFutureReportDate(targetWeek, activeReportAnchor)) {
+      return `[Data tidak valid] Periode belum dimulai — pilih tanggal laporan pada atau sebelum minggu aktif (${formatDisplayDate(activeReportAnchor)}).`;
     }
     return null;
   };
@@ -6242,7 +6298,7 @@ function ReportsTab({
     }
   };
   const saveProgressWeek = async () => {
-    if (isPastWeeklyAnchor(targetWeek, activeReportAnchor)) {
+    if (isPastReportDate(targetWeek, activeReportAnchor)) {
       setErr(
         `[Data tidak valid] Progress snapshot hanya untuk minggu laporan aktif (${formatDisplayDate(activeReportAnchor)}), bukan periode yang sudah lewat.`,
       );
@@ -6307,15 +6363,15 @@ function ReportsTab({
       anchorMeta.min_first_anchor_date &&
       first < anchorMeta.min_first_anchor_date
     ) {
-      return `[Data tidak valid] Tanggal weekly report pertama harus ≥ anchor pertama setelah project start (${formatDisplayDate(anchorMeta.min_first_anchor_date)}).`;
+      return `[Data tidak valid] Tanggal laporan pertama harus ≥ tanggal laporan pertama setelah project start (${formatDisplayDate(anchorMeta.min_first_anchor_date)}).`;
     }
     const d = new Date(`${first}T12:00:00`);
     const wd = (d.getDay() + 6) % 7;
     if (wd !== weeklyCfg.weekly_report_anchor_weekday) {
       const label =
         WEEKDAY_OPTS.find((o) => o.v === weeklyCfg.weekly_report_anchor_weekday)?.label ??
-        "hari anchor";
-      return `[Data tidak valid] Tanggal weekly report pertama harus jatuh pada hari ${label}.`;
+        "hari laporan";
+      return `[Data tidak valid] Tanggal laporan pertama harus jatuh pada hari ${label}.`;
     }
     return null;
   };
@@ -6330,27 +6386,28 @@ function ReportsTab({
       await api(`/projects/${projectId}`, {
         method: "PATCH",
         body: JSON.stringify({
-          weekly_report_anchor_weekday: weeklyCfg.weekly_report_anchor_weekday,
-          weekly_report_cutoff_offset_days: weeklyCfg.weekly_report_cutoff_offset_days,
-          weekly_report_first_anchor_date:
-            weeklyCfg.weekly_report_first_anchor_date.trim() || null,
+          report_weekday: weeklyCfg.weekly_report_anchor_weekday,
+          period_length_days: weeklyCfg.weekly_report_cutoff_offset_days,
+          first_report_date: weeklyCfg.weekly_report_first_anchor_date.trim() || null,
         }),
       });
       setScheduleMsg("Jadwal laporan disimpan.");
       api<{
-        anchors: { anchor_date: string; cut_off_date: string }[];
+        anchors: WeeklyReportPeriodOption[];
         project_start_date?: string | null;
         schedule_end?: string | null;
+        min_first_report_date?: string | null;
         min_first_anchor_date?: string | null;
+        active_report_date?: string | null;
         active_anchor_date?: string | null;
       }>(`/projects/${projectId}/schedule/report-anchors`)
         .then((r) => {
           setAnchorOptions(r.anchors ?? []);
-          setActiveReportAnchor(r.active_anchor_date ?? null);
+          setActiveReportAnchor(r.active_report_date ?? r.active_anchor_date ?? null);
           setAnchorMeta({
             project_start_date: r.project_start_date ?? null,
             schedule_end: r.schedule_end ?? null,
-            min_first_anchor_date: r.min_first_anchor_date ?? null,
+            min_first_anchor_date: r.min_first_report_date ?? r.min_first_anchor_date ?? null,
           });
         })
         .catch(() => {});
@@ -6368,6 +6425,8 @@ function ReportsTab({
     try {
       const r = await api<{
         anchors: {
+          report_date?: string;
+          period_start?: string;
           anchor_date: string;
           cut_off_date: string;
           planned_cumulative_pct: number;
@@ -6381,7 +6440,9 @@ function ReportsTab({
       setTargetAnchors(r.anchors ?? []);
       setAnchorOptions(
         (r.anchors ?? []).map((a) => ({
+          report_date: a.report_date ?? a.anchor_date,
           anchor_date: a.anchor_date,
+          period_start: a.period_start,
           cut_off_date: a.cut_off_date,
         })),
       );
@@ -6399,9 +6460,9 @@ function ReportsTab({
       <section className="weekly-schedule-card">
         <h2 className="card-title">Weekly report & S-curve</h2>
         <p className="text-muted">
-          Hari anchor dan cut-off dipakai untuk periode laporan mingguan dan titik planned S-curve.
-          Weekly report pertama menentukan anchor awal; generate target menghitung semua periode
-          sampai akhir proyek.
+          Hari laporan dan panjang periode (mundur dari tanggal laporan) menentukan rentang mingguan
+          dan titik planned S-curve. Tanggal laporan pertama opsional; generate target menghitung
+          semua periode sampai akhir proyek.
         </p>
         {(anchorMeta.project_start_date || anchorMeta.schedule_end) && (
           <p className="text-muted form-hint weekly-schedule-bounds">
@@ -6410,7 +6471,7 @@ function ReportsTab({
             {anchorMeta.min_first_anchor_date && (
               <>
                 {" "}
-                · Anchor weekly report pertama (setelah project start):{" "}
+                · Tanggal laporan pertama (setelah project start):{" "}
                 <strong>{formatDisplayDate(anchorMeta.min_first_anchor_date)}</strong>
               </>
             )}
@@ -6420,7 +6481,7 @@ function ReportsTab({
         <div className="weekly-schedule-panel sph-info-panel">
           <div className="sph-info-grid weekly-schedule-grid">
             <div className="form-row">
-              <label htmlFor="wr-anchor-weekday">Hari anchor laporan</label>
+              <label htmlFor="wr-anchor-weekday">Hari laporan (report weekday)</label>
               <select
                 id="wr-anchor-weekday"
                 className="sph-info-input"
@@ -6440,10 +6501,13 @@ function ReportsTab({
               </select>
             </div>
             <div className="form-row">
-              <label htmlFor="wr-cutoff">Cut-off offset (hari dari anchor)</label>
+              <label htmlFor="wr-cutoff">
+                Panjang periode (period length, hari mundur dari tanggal laporan)
+              </label>
               <input
                 id="wr-cutoff"
                 type="number"
+                min={0}
                 className="sph-info-input"
                 value={weeklyCfg.weekly_report_cutoff_offset_days}
                 onChange={(e) =>
@@ -6453,9 +6517,13 @@ function ReportsTab({
                   })
                 }
               />
+              <p className="form-hint" style={{ margin: "0.35rem 0 0" }}>
+                ≈ {displayPeriodDayCount(weeklyCfg.weekly_report_cutoff_offset_days)} hari kalender
+                (inklusif) per periode laporan.
+              </p>
             </div>
             <div className="form-row sph-info-grid__full">
-              <label htmlFor="wr-first-anchor">Tanggal weekly report pertama (anchor)</label>
+              <label htmlFor="wr-first-anchor">Tanggal laporan pertama (opsional)</label>
               <input
                 id="wr-first-anchor"
                 type="date"
@@ -6469,8 +6537,8 @@ function ReportsTab({
                 }
               />
               <p className="form-hint" style={{ margin: "0.35rem 0 0" }}>
-                Opsional. Jika diisi, harus ≥ anchor pertama setelah project start dan jatuh pada
-                hari anchor laporan. Kosongkan = anchor otomatis setelah project start. Planned
+                Jika diisi, harus ≥ tanggal laporan pertama setelah project start dan jatuh pada
+                hari laporan. Kosongkan = otomatis setelah project start. Planned
                 kumulatif = Σ (bobot phase × progress phase); progress phase = hari kerja elapsed ÷
                 total hari kerja phase (0–100%).
               </p>
@@ -6487,9 +6555,9 @@ function ReportsTab({
         </div>
         {targetAnchors.length > 0 && (
           <div className="weekly-target-anchors">
-            <h3 className="subsection-title">Target weekly report (anchor)</h3>
+            <h3 className="subsection-title">Target weekly report</h3>
             <p className="text-muted form-hint">
-              {targetAnchors.length} periode anchor s.d. End proyek — planned kumulatif 100% pada
+              {targetAnchors.length} periode s.d. akhir proyek — planned kumulatif 100% pada
               periode terakhir.
             </p>
             <div className="weekly-target-anchors__scroll">
@@ -6497,8 +6565,8 @@ function ReportsTab({
                 <thead>
                   <tr>
                     <th>#</th>
-                    <th>Tanggal anchor</th>
-                    <th>Cut-off</th>
+                    <th>Tanggal laporan</th>
+                    <th>Periode</th>
                     <th className="num">Planned kumulatif (%)</th>
                   </tr>
                 </thead>
@@ -6506,8 +6574,15 @@ function ReportsTab({
                   {targetAnchors.map((a, i) => (
                     <tr key={a.anchor_date}>
                       <td>{i + 1}</td>
-                      <td>{formatDisplayDate(a.anchor_date)}</td>
-                      <td>{formatDisplayDate(a.cut_off_date)}</td>
+                      <td>{formatDisplayDate(a.report_date ?? a.anchor_date)}</td>
+                      <td>
+                        {formatWeeklyPeriodOptionLabel({
+                          report_date: a.report_date,
+                          anchor_date: a.anchor_date,
+                          period_start: a.period_start,
+                          cut_off_date: a.cut_off_date,
+                        })}
+                      </td>
                       <td className="num">
                         {a.planned_cumulative_pct != null
                           ? Number(a.planned_cumulative_pct).toFixed(2)
@@ -6577,7 +6652,9 @@ function ReportsTab({
               milestoneChart.status_date_report ?? statusDateReport
             }
             activeAnchor={
-              milestoneChart.active_anchor_date ?? activeReportAnchor
+              milestoneChart.active_report_date ??
+              milestoneChart.active_anchor_date ??
+              activeReportAnchor
             }
             projectCode={projectCode}
             projectName={projectName}
@@ -6587,13 +6664,14 @@ function ReportsTab({
           <div className="scurve-table-wrap">
             {activeReportAnchor && (
               <p className="text-muted scurve-table-hint">
-                Baris highlight = minggu laporan aktif (anchor {formatDisplayDate(activeReportAnchor)}).
+                Baris highlight = minggu laporan aktif (tanggal laporan{" "}
+                {formatDisplayDate(activeReportAnchor)}).
               </p>
             )}
             <table className="data-table data-table--compact scurve-data-table">
               <thead>
                 <tr>
-                  <th>Tanggal anchor</th>
+                  <th>Tanggal laporan</th>
                   <th className="num">Planned %</th>
                   <th className="num">Actual %</th>
                   <th className="num">SPI</th>
@@ -6635,7 +6713,7 @@ function ReportsTab({
           <p className="text-muted">Weekly report & progress snapshot aktif setelah fase delivery.</p>
         )}
         <div className="form-row">
-          <label htmlFor="wr-target-week">Target weekly report (anchor)</label>
+          <label htmlFor="wr-target-week">Periode weekly report (tanggal laporan)</label>
           <select
             id="wr-target-week"
             value={targetWeek}
@@ -6643,11 +6721,12 @@ function ReportsTab({
           >
             <option value="">— pilih periode —</option>
             {anchorOptions.map((a) => {
-              const future = isFutureWeeklyAnchor(a.anchor_date, activeReportAnchor);
-              const past = isPastWeeklyAnchor(a.anchor_date, activeReportAnchor);
+              const rd = reportDateFromOption(a);
+              const future = isFutureReportDate(rd, activeReportAnchor);
+              const past = isPastReportDate(rd, activeReportAnchor);
               return (
-                <option key={a.anchor_date} value={a.anchor_date} disabled={future}>
-                  {a.anchor_date} (cut-off {a.cut_off_date})
+                <option key={rd} value={rd} disabled={future}>
+                  {formatWeeklyPeriodOptionLabel(a)}
                   {future ? " — belum dimulai" : past ? " — sudah lewat (snapshot nonaktif)" : ""}
                 </option>
               );
@@ -6696,21 +6775,28 @@ function ReportsTab({
               {preview.project_code} — {preview.project_name}
             </p>
             <p>
-              Periode target:{" "}
+              Tanggal laporan:{" "}
               <strong>
                 {formatDisplayDate(
-                  preview.period_start ?? preview.target_week_start ?? preview.week_start,
-                )}
-              </strong>{" "}
-              s/d{" "}
-              <strong>
-                {formatDisplayDate(
-                  preview.status_date_report ??
-                    preview.health?.status_date ??
-                    preview.cut_off_date ??
-                    preview.week_end,
+                  preview.report_date ??
+                    preview.status_date_report ??
+                    preview.week_end ??
+                    preview.week_start,
                 )}
               </strong>
+            </p>
+            <p>
+              Periode:{" "}
+              <strong>
+                {formatStoredWeeklyPeriod(
+                  preview.week_start,
+                  preview.week_end,
+                  preview.period_start ?? preview.target_week_start,
+                )}
+              </strong>
+              {preview.period_day_count != null && (
+                <span className="text-muted"> ({preview.period_day_count} hari)</span>
+              )}
             </p>
             <p className="text-muted">
               Status date report:{" "}
@@ -6718,12 +6804,10 @@ function ReportsTab({
                 {formatDisplayDate(
                   preview.status_date_report ??
                     preview.health?.status_date ??
-                    preview.cut_off_date ??
+                    preview.report_date ??
                     preview.week_end,
                 )}
               </strong>
-              {" · "}
-              Anchor: <strong>{formatDisplayDate(preview.week_start)}</strong>
             </p>
             {preview.already_exists && (
               <TabAlert
