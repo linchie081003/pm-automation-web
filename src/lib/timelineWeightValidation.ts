@@ -22,6 +22,12 @@ function rowKeys(rows: DraftWeightRow[]): { row: DraftWeightRow; key: string }[]
   }));
 }
 
+function rowLabel(row: DraftWeightRow, key: string): string {
+  const name = (row.name || "").trim() || key;
+  const unsaved = row.id == null ? " (baris baru, belum disimpan)" : "";
+  return `«${name}»${unsaved}`;
+}
+
 export function validateDraftTimelineWeight(
   rows: DraftWeightRow[],
 ): DraftWeightValidation {
@@ -33,9 +39,26 @@ export function validateDraftTimelineWeight(
   const keyed = rowKeys(rows);
   const keySet = new Set(keyed.map((k) => k.key));
 
-  for (const { row } of keyed) {
+  for (const { row, key } of keyed) {
     if (row.parent_ref && !keySet.has(row.parent_ref)) {
-      issues.push(`Parent «${row.parent_ref}» tidak ditemukan (baris «${row.name}»).`);
+      issues.push(
+        `${rowLabel(row, key)}: parent «${row.parent_ref}» tidak ditemukan — pilih parent yang valid.`,
+      );
+    }
+  }
+
+  for (const { row, key } of keyed) {
+    if (row.parent_ref) continue;
+    const t = (row.item_type || "phase").toLowerCase();
+    if (t === "milestone") {
+      issues.push(
+        `${rowLabel(row, key)}: milestone gate tidak boleh di root — pilih parent phase.`,
+      );
+    } else if (t !== "phase") {
+      issues.push(
+        `${rowLabel(row, key)}: hanya phase yang boleh di root (tipe sekarang: ${t}). ` +
+          "Set parent ke salah satu phase atau ubah tipe menjadi phase.",
+      );
     }
   }
 
@@ -51,8 +74,13 @@ export function validateDraftTimelineWeight(
   if (!phaseRoots.length) {
     issues.push("Minimal satu phase di root.");
   } else if (Math.abs(rootTotal - 100) > TIMELINE_WEIGHT_TOLERANCE) {
+    const unsavedPhases = phaseRoots.filter(({ row }) => row.id == null);
+    const hint =
+      unsavedPhases.length > 0
+        ? ` Termasuk ${unsavedPhases.length} phase baru belum disimpan — sesuaikan bobot lalu Simpan.`
+        : "";
     issues.push(
-      `Total bobot phase root ${rootTotal.toFixed(1)}% — harus 100% (±${TIMELINE_WEIGHT_TOLERANCE}).`,
+      `Total bobot phase root ${rootTotal.toFixed(1)}% — harus 100% (±${TIMELINE_WEIGHT_TOLERANCE}).${hint}`,
     );
   }
 
@@ -69,8 +97,14 @@ export function validateDraftTimelineWeight(
     );
     const parentWeight = Number(parent.weight_pct) || 0;
     if (Math.abs(childSum - parentWeight) > TIMELINE_WEIGHT_TOLERANCE) {
+      const newKids = weightedChildren.filter(({ row }) => row.id == null);
+      const kidHint =
+        newKids.length > 0
+          ? ` Ada ${newKids.length} baris anak baru (belum disimpan) — isi bobot atau hapus baris.`
+          : "";
       issues.push(
-        `Bobot anak «${parent.name}» = ${childSum.toFixed(1)}% harus sama dengan bobot parent ${parentWeight.toFixed(1)}%.`,
+        `Di bawah ${rowLabel(parent, parentKey)}: jumlah bobot anak ${childSum.toFixed(1)}% ` +
+          `harus sama dengan bobot parent ${parentWeight.toFixed(1)}%.${kidHint}`,
       );
     }
   }

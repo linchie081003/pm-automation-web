@@ -247,9 +247,16 @@ table.data-table--projects tbody tr:last-child td {
 }
 
 .project-list-col-actions {
-  width: 4.5rem;
+  width: 7.5rem;
   text-align: right;
   white-space: nowrap;
+}
+
+.project-list-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
 }
 
 .list-search-bar {
@@ -886,6 +893,18 @@ ul.plain {
 
 .bast-check input {
   margin-top: 0.2rem;
+}
+
+textarea.sph-scope-textarea {
+  width: 100%;
+  max-width: 48rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  resize: vertical;
 }
 
 /* SPH list panels */
@@ -3932,6 +3951,48 @@ table.po-table .po-col-actions {
   background: var(--color-border-light);
 }
 
+.rebaseline-proposal-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.rebaseline-proposal-table .col-status {
+  width: 8.5rem;
+}
+
+.rebaseline-proposal-table .col-name input {
+  width: 100%;
+  min-width: 10rem;
+}
+
+.rebaseline-proposal-table .col-pred {
+  width: 11rem;
+}
+
+.rebaseline-proposal-table .col-date {
+  width: 9.5rem;
+}
+
+.rebaseline-proposal-table .col-weight {
+  width: 5.5rem;
+}
+
+.rebaseline-proposal-table .col-action {
+  width: 5rem;
+}
+
+.rebaseline-proposal-table .col-notes input {
+  width: 100%;
+  min-width: 12rem;
+}
+
+.rebaseline-proposal-table input[type="date"],
+.rebaseline-proposal-table input[type="number"],
+.rebaseline-proposal-table select {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 .rebaseline-toggle {
   display: block;
   margin: 0.75rem 0;
@@ -4134,10 +4195,87 @@ table.po-table .po-col-actions {
   min-width: 1080px;
 }
 
-table.data-table--timeline .timeline-col-order {
+.table-scroll--timeline .data-table--timeline {
+  min-width: 72rem;
+}
+
+table.data-table--timeline {
+  table-layout: fixed;
+  width: 100%;
+}
+
+table.data-table--timeline col.timeline-col-name {
+  width: 18%;
+}
+
+table.data-table--timeline col.timeline-col-notes {
+  width: 16%;
+}
+
+table.data-table--timeline col.timeline-col-parent {
+  width: 12%;
+}
+
+table.data-table--timeline col.timeline-col-pred {
+  width: 10rem;
+}
+
+table.data-table--timeline col.timeline-col-pred-type {
+  width: 4.25rem;
+}
+
+table.rebaseline-proposal-table col.col-pred-type {
+  width: 4.25rem;
+}
+
+table.data-table--timeline col.timeline-col-date {
+  width: 8.5rem;
+}
+
+table.data-table--timeline col.timeline-col-duration {
+  width: 5.5rem;
+}
+
+table.data-table--timeline col.timeline-col-type {
+  width: 6.25rem;
+}
+
+table.data-table--timeline col.timeline-col-weight {
+  width: 4.75rem;
+}
+
+table.data-table--timeline col.timeline-col-action {
+  width: 4.25rem;
+}
+
+table.data-table--timeline col.timeline-col-order {
   width: 3.25rem;
+}
+
+table.data-table--timeline .timeline-col-order {
   text-align: center;
   vertical-align: middle;
+}
+
+table.data-table--timeline .sph-inline-input,
+table.data-table--timeline .timeline-parent-select,
+table.data-table--timeline select {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.sph-inline-input--name {
+  min-width: 0;
+}
+
+table.data-table--timeline .timeline-col-name .sph-inline-input--name {
+  font-size: 0.875rem;
+}
+
+table.data-table--timeline .timeline-parent-select {
+  font-size: 0.8125rem;
+  padding: 0.4rem 0.35rem;
 }
 
 .timeline-order-btns {
@@ -4154,8 +4292,7 @@ table.data-table--timeline .timeline-col-order {
 }
 
 table.data-table--timeline .timeline-col-notes {
-  min-width: 11rem;
-  max-width: 18rem;
+  min-width: 9rem;
 }
 
 .sph-inline-input--notes {

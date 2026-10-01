@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -22,6 +23,15 @@ import {
   RebaselineDiffView,
   type RebaselineDiffPayload,
 } from "../components/RebaselineDiffView";
+import {
+  normalizePredecessorLinkType,
+  PREDECESSOR_LINK_OPTIONS,
+} from "../predecessorLinkTypes";
+import {
+  formatProjectTimelineSummary,
+  type ProjectTimelineSummary,
+} from "../timelineProjectDuration";
+import { phaseRowRef } from "../rebaselineSchedule";
 import { useAuth } from "../auth";
 import {
   ChartPanelToolbar,
@@ -1984,6 +1994,10 @@ type ProposedPhaseRow = {
   can_edit_weight?: boolean;
   clickup_workflow?: string;
   pdc_status?: string;
+  notes?: string;
+  predecessor_ref?: string;
+  predecessor_link_type?: string;
+  duration_days?: number;
 };
 
 type RebaselinePhaseSummary = {
@@ -2104,6 +2118,13 @@ function MilestonesTab({
           can_edit_weight: row.can_edit_weight !== false,
           clickup_workflow: row.clickup_workflow ? String(row.clickup_workflow) : undefined,
           pdc_status: row.pdc_status ? String(row.pdc_status) : undefined,
+          notes: row.notes ? String(row.notes) : "",
+          predecessor_ref: row.predecessor_ref ? String(row.predecessor_ref) : "",
+          predecessor_link_type: row.predecessor_link_type
+            ? String(row.predecessor_link_type)
+            : "FS",
+          duration_days:
+            typeof row.duration_days === "number" ? row.duration_days : undefined,
         })),
       );
     },
@@ -2137,8 +2158,8 @@ function MilestonesTab({
       .catch((e) => setRebaseMsg(getErrorMessage(e)));
   }, [rebaselineOptIn, projectId, refreshKey, seedProposedFromPreview]);
 
-  const proposedPhasesBody = () =>
-    proposedPhases.map((p) => ({
+  const proposedPhasesBody = (rows: ProposedPhaseRow[] = proposedPhases) =>
+    rows.map((p) => ({
       name: p.name,
       start_date: p.start_date || null,
       target_date: p.target_date || null,
@@ -2146,7 +2167,61 @@ function MilestonesTab({
       milestone_id: p.milestone_id ?? null,
       client_key: p.client_key ?? null,
       sort_order: p.sort_order,
+      notes: p.notes?.trim() || null,
+      predecessor_ref: p.predecessor_ref?.trim() || null,
+      predecessor_link_type: p.predecessor_ref?.trim()
+        ? normalizePredecessorLinkType(p.predecessor_link_type)
+        : null,
+      duration_days: p.duration_days ?? null,
     }));
+
+  const mergeRecalcProposedPhases = (
+    prev: ProposedPhaseRow[],
+    apiRows: Array<Record<string, unknown>>,
+  ): ProposedPhaseRow[] =>
+    (apiRows ?? []).map((row, i) => ({
+      name: String(row.name ?? ""),
+      start_date: row.start_date ? String(row.start_date).slice(0, 10) : "",
+      target_date: row.target_date ? String(row.target_date).slice(0, 10) : "",
+      weight_pct: String(row.weight_pct ?? "0"),
+      milestone_id: typeof row.milestone_id === "number" ? row.milestone_id : null,
+      client_key: row.client_key ? String(row.client_key) : undefined,
+      sort_order: typeof row.sort_order === "number" ? row.sort_order : i,
+      notes: prev[i]?.notes ?? "",
+      predecessor_ref: prev[i]?.predecessor_ref ?? (row.predecessor_ref ? String(row.predecessor_ref) : ""),
+      predecessor_link_type:
+        prev[i]?.predecessor_link_type ??
+        (row.predecessor_link_type ? String(row.predecessor_link_type) : "FS"),
+      duration_days:
+        typeof row.duration_days === "number" ? row.duration_days : prev[i]?.duration_days,
+      lifecycle: prev.find((p) => p.milestone_id === row.milestone_id)?.lifecycle ?? prev[i]?.lifecycle,
+      can_delete: prev[i]?.can_delete,
+      can_edit_weight: prev[i]?.can_edit_weight,
+      clickup_workflow: prev[i]?.clickup_workflow,
+      pdc_status: prev[i]?.pdc_status,
+    }));
+
+  const runRebaseRecalcDates = async (rows: ProposedPhaseRow[] = proposedPhases) => {
+    setRebaseBusy(true);
+    setRebaseMsg("");
+    try {
+      const res = await api<{ proposed_phases: Array<Record<string, unknown>> }>(
+        `/projects/${projectId}/rebaseline/recalc-dates`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            effective_from: rebaseEffectiveFrom,
+            proposed_phases: proposedPhasesBody(rows),
+          }),
+        },
+      );
+      setProposedPhases(mergeRecalcProposedPhases(rows, res.proposed_phases ?? []));
+    } catch (e) {
+      setRebaseMsg(getErrorMessage(e));
+    } finally {
+      setRebaseBusy(false);
+    }
+  };
 
   const runRebaseValidate = async () => {
     setRebaseBusy(true);
@@ -2617,15 +2692,44 @@ function MilestonesTab({
               </p>
             )}
             <h4 className="subsection-title">Usulan fase (phase)</h4>
-            <table className="compact-table">
+            <p className="text-muted">
+              <strong>Predecessor:</strong> pilih fase lalu tipe relasi{" "}
+              <strong>FS / SS / FF / SF</strong> (MS Project). FS = mulai setelah selesai; SS =
+              mulai bersamaan; FF = selesai bersamaan; SF = selesai saat predecessor mulai. Kosong
+              = rantai urutan otomatis.
+            </p>
+            <div className="btn-group" style={{ marginBottom: "0.5rem" }}>
+              <button
+                type="button"
+                disabled={rebaseBusy}
+                onClick={() => void runRebaseRecalcDates()}
+              >
+                Hitung ulang tanggal (predecessor)
+              </button>
+            </div>
+            <table className="compact-table rebaseline-proposal-table">
+              <colgroup>
+                <col className="col-status" />
+                <col />
+                <col className="col-pred" />
+                <col className="col-pred-type" />
+                <col className="col-date" />
+                <col className="col-date" />
+                <col className="col-weight" />
+                {rebaseCategory === "scope_change" && <col className="col-action" />}
+                <col className="col-notes" />
+              </colgroup>
               <thead>
                 <tr>
-                  <th>Status</th>
-                  <th>Nama</th>
-                  <th>Start</th>
-                  <th>Target</th>
-                  <th className="num">Bobot %</th>
-                  {rebaseCategory === "scope_change" && <th />}
+                  <th className="col-status">Status</th>
+                  <th className="col-name">Nama fase</th>
+                  <th className="col-pred">Predecessor</th>
+                  <th className="col-pred-type">Relasi</th>
+                  <th className="col-date">Start</th>
+                  <th className="col-date">Target</th>
+                  <th className="num col-weight">Bobot %</th>
+                  {rebaseCategory === "scope_change" && <th className="col-action">Aksi</th>}
+                  <th className="col-notes">Catatan</th>
                 </tr>
               </thead>
               <tbody>
@@ -2635,6 +2739,11 @@ function MilestonesTab({
                   const weightLocked =
                     rebaseCategory === "delay" ||
                     (row.milestone_id != null && row.can_edit_weight === false);
+                  const datesLocked = row.lifecycle === "closed";
+                  const rowRef = phaseRowRef(row, idx);
+                  const predOptions = proposedPhases
+                    .map((p, j) => ({ p, j, ref: phaseRowRef(p, j) }))
+                    .filter((o) => o.ref !== rowRef);
                   return (
                   <tr key={row.milestone_id ?? row.client_key ?? idx}>
                     <td>
@@ -2645,7 +2754,7 @@ function MilestonesTab({
                         {rebaselineLifecycleLabel(row)}
                       </span>
                     </td>
-                    <td>
+                    <td className="col-name">
                       <input
                         value={row.name}
                         disabled={rebaseCategory === "delay"}
@@ -2657,9 +2766,62 @@ function MilestonesTab({
                       />
                     </td>
                     <td>
+                      <select
+                        value={row.predecessor_ref ?? ""}
+                        disabled={datesLocked}
+                        onChange={(e) => {
+                          const next = [...proposedPhases];
+                          const val = e.target.value || undefined;
+                          next[idx] = {
+                            ...row,
+                            predecessor_ref: val,
+                            predecessor_link_type: val
+                              ? normalizePredecessorLinkType(row.predecessor_link_type)
+                              : undefined,
+                          };
+                          setProposedPhases(next);
+                          void runRebaseRecalcDates(next);
+                        }}
+                      >
+                        <option value="">— (rantai urutan)</option>
+                        {predOptions.map(({ p, ref }) => (
+                          <option key={ref} value={ref}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="col-pred-type">
+                      <select
+                        value={normalizePredecessorLinkType(row.predecessor_link_type)}
+                        disabled={datesLocked || !row.predecessor_ref}
+                        title={
+                          PREDECESSOR_LINK_OPTIONS.find(
+                            (o) => o.value === normalizePredecessorLinkType(row.predecessor_link_type),
+                          )?.hint
+                        }
+                        onChange={(e) => {
+                          const next = [...proposedPhases];
+                          next[idx] = {
+                            ...row,
+                            predecessor_link_type: e.target.value,
+                          };
+                          setProposedPhases(next);
+                          void runRebaseRecalcDates(next);
+                        }}
+                      >
+                        {PREDECESSOR_LINK_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.value}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
                       <input
                         type="date"
                         value={row.start_date}
+                        disabled={datesLocked}
                         onChange={(e) => {
                           const next = [...proposedPhases];
                           next[idx] = { ...row, start_date: e.target.value };
@@ -2671,6 +2833,7 @@ function MilestonesTab({
                       <input
                         type="date"
                         value={row.target_date}
+                        disabled={datesLocked}
                         onChange={(e) => {
                           const next = [...proposedPhases];
                           next[idx] = { ...row, target_date: e.target.value };
@@ -2714,6 +2877,18 @@ function MilestonesTab({
                         </button>
                       </td>
                     )}
+                    <td className="col-notes">
+                      <input
+                        type="text"
+                        placeholder="Catatan PM…"
+                        value={row.notes ?? ""}
+                        onChange={(e) => {
+                          const next = [...proposedPhases];
+                          next[idx] = { ...row, notes: e.target.value };
+                          setProposedPhases(next);
+                        }}
+                      />
+                    </td>
                   </tr>
                   );
                 })}
@@ -3030,7 +3205,40 @@ type DraftTimelineRow = {
   parent_ref?: string | null;
   sort_order: number;
   notes?: string | null;
+  predecessor_ref?: string | null;
+  predecessor_link_type?: string | null;
+  schedule_driver?: "duration" | "start" | "end" | null;
 };
+
+type ScheduleDriver = "duration" | "start" | "end";
+
+function draftTimelineRowRef(row: DraftTimelineRow, index: number): string {
+  return row.row_key || String(row.id ?? `i_${index}`);
+}
+
+function draftPredecessorOptions(
+  rows: DraftTimelineRow[],
+  index: number,
+): { ref: string; label: string }[] {
+  const selfRef = draftTimelineRowRef(rows[index], index);
+  return rows
+    .map((p, pi) => ({ p, pi, ref: draftTimelineRowRef(p, pi) }))
+    .filter(
+      ({ p, ref }) =>
+        ref !== selfRef &&
+        (p.item_type || "").toLowerCase() !== "milestone" &&
+        (p.row_key || p.id),
+    )
+    .map(({ p, ref }) => ({ ref, label: p.name }));
+}
+
+function lastRootPhaseRowRef(rows: DraftTimelineRow[]): string | null {
+  const roots = rows.filter(
+    (r) => !r.parent_ref && (r.item_type || "phase").toLowerCase() === "phase",
+  );
+  const last = roots[roots.length - 1];
+  return last ? draftTimelineRowRef(last, 0) : null;
+}
 
 function normalizeDraftSortOrder(rows: DraftTimelineRow[]): DraftTimelineRow[] {
   return rows.map((r, i) => ({ ...r, sort_order: i }));
@@ -3077,6 +3285,19 @@ function syncPaymentTermsFromDraft(
   });
 }
 
+function mergeDraftTimelineNotes(
+  prev: DraftTimelineRow[],
+  fromServer: DraftTimelineRow[],
+): DraftTimelineRow[] {
+  const notesByKey = new Map(
+    prev.map((r) => [r.row_key ?? String(r.id ?? ""), r.notes ?? ""]),
+  );
+  return fromServer.map((r) => ({
+    ...r,
+    notes: notesByKey.get(r.row_key ?? String(r.id ?? "")) ?? r.notes ?? "",
+  }));
+}
+
 function draftRowsWithParentRefs(rows: DraftTimelineRow[]): DraftTimelineRow[] {
   const idToKey: Record<number, string> = {};
   for (const r of rows) {
@@ -3089,17 +3310,117 @@ function draftRowsWithParentRefs(rows: DraftTimelineRow[]): DraftTimelineRow[] {
   }));
 }
 
+function draftTimelineRecalcPayload(rows: DraftTimelineRow[], startDate: string | null) {
+  return {
+    start_date: startDate || null,
+    rows: draftRowsWithParentRefs(rows).map((r, idx) => ({
+      id: r.id,
+      row_key: r.row_key || String(r.id || idx),
+      name: r.name,
+      duration_days: r.item_type === "milestone" ? 0 : r.duration_days,
+      weight_pct: r.item_type === "milestone" ? 0 : r.weight_pct,
+      item_type: r.item_type,
+      parent_ref: r.parent_ref || null,
+      parent_id: r.parent_id ?? null,
+      sort_order: idx,
+      start_date: r.start_date || null,
+      target_date: r.target_date || null,
+      predecessor_ref: r.predecessor_ref?.trim() || null,
+      predecessor_link_type: r.predecessor_ref?.trim()
+        ? normalizePredecessorLinkType(r.predecessor_link_type)
+        : null,
+      schedule_driver: r.schedule_driver ?? null,
+    })),
+  };
+}
+
+function patchDraftRowSchedule(
+  rows: DraftTimelineRow[],
+  index: number,
+  patch: Partial<DraftTimelineRow>,
+  driver: ScheduleDriver,
+): DraftTimelineRow[] {
+  const next = [...rows];
+  next[index] = { ...next[index], ...patch, schedule_driver: driver };
+  return next;
+}
+
 function DraftTimelineTable({
   canEdit,
+  projectId,
+  timelineStart,
   draftTimeline,
   setDraftTimeline,
+  projectTimeline,
+  onProjectTimelineChange,
   onSave,
 }: {
   canEdit: boolean;
+  projectId: number;
+  timelineStart: string | null;
   draftTimeline: DraftTimelineRow[];
   setDraftTimeline: (rows: DraftTimelineRow[]) => void;
+  projectTimeline?: ProjectTimelineSummary | null;
+  onProjectTimelineChange?: (summary: ProjectTimelineSummary | null) => void;
   onSave: () => void | Promise<void>;
 }) {
+  const [recalcBusy, setRecalcBusy] = useState(false);
+  const [recalcError, setRecalcError] = useState("");
+  const recalcTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleServerRecalc = useCallback(
+    (rows: DraftTimelineRow[]) => {
+      if (!canEdit || !timelineStart?.trim()) return;
+      const weightPreview = validateDraftTimelineWeight(draftRowsWithParentRefs(rows));
+      if (!weightPreview.ok) {
+        setRecalcError(
+          "Hitung ulang tanggal ditunda — perbaiki bobot/struktur timeline terlebih dahulu (lihat daftar di atas).",
+        );
+        return;
+      }
+      if (recalcTimer.current) clearTimeout(recalcTimer.current);
+      recalcTimer.current = setTimeout(() => {
+        setRecalcBusy(true);
+        setRecalcError("");
+        api<{
+          draft_timeline: DraftTimelineRow[];
+          project_timeline?: ProjectTimelineSummary;
+        }>(`/projects/${projectId}/sph/draft-timeline/recalc`, {
+            method: "POST",
+            body: JSON.stringify(draftTimelineRecalcPayload(rows, timelineStart)),
+          },
+        )
+          .then((res) => {
+            setDraftTimeline(mergeDraftTimelineNotes(rows, draftRowsWithParentRefs(res.draft_timeline)));
+            onProjectTimelineChange?.(res.project_timeline ?? null);
+          })
+          .catch((e) => {
+            setRecalcError(getErrorMessage(e));
+          })
+          .finally(() => setRecalcBusy(false));
+      }, 450);
+    },
+    [canEdit, projectId, timelineStart, setDraftTimeline, onProjectTimelineChange],
+  );
+
+  const projectDurationLabel = formatProjectTimelineSummary(projectTimeline);
+
+  const defaultParentForNewRow = useCallback((rows: DraftTimelineRow[]) => {
+    const phases = rows.filter(
+      (r) => (r.item_type || "").toLowerCase() === "phase" && !r.parent_ref,
+    );
+    const phase = phases[phases.length - 1] ?? phases[0];
+    if (!phase) return null;
+    return phase.row_key || (phase.id != null ? String(phase.id) : null);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (recalcTimer.current) clearTimeout(recalcTimer.current);
+    },
+    [],
+  );
+
   const weightCheck = useMemo(
     () => validateDraftTimelineWeight(draftRowsWithParentRefs(draftTimeline)),
     [draftTimeline],
@@ -3123,6 +3444,12 @@ function DraftTimelineTable({
         className={`timeline-weight-summary${weightCheck.ok ? " timeline-weight-summary--ok" : " timeline-weight-summary--warn"}`}
         role="status"
       >
+        {projectDurationLabel && (
+          <p className="timeline-weight-summary__line timeline-weight-summary__line--project">
+            Durasi proyek (dari timeline): <strong>{projectDurationLabel}</strong>
+            <span className="text-muted"> — hari kerja inclusive, estimasi mulai → selesai terakhir</span>
+          </p>
+        )}
         <p className="timeline-weight-summary__line">
           Total bobot phase (root):{" "}
           <strong>{weightCheck.rootTotal.toFixed(1)}%</strong>
@@ -3144,24 +3471,51 @@ function DraftTimelineTable({
             ))}
           </ul>
         )}
+        {recalcError && (
+          <p className="timeline-weight-summary__issues" style={{ marginTop: "0.5rem" }}>
+            {recalcError}
+          </p>
+        )}
         <p className="text-muted timeline-weight-summary__hint">
           Aturan: total phase root = 100%; jumlah bobot anak (task/subtask) = bobot parent (±0,5%).
+          Mulai/selesai mengikuti kalender kerja + libur (Setting → hari kerja). Ubah{" "}
+          <strong>durasi</strong> pada task/subtask (atau fase tanpa task) — selesai dihitung
+          ulang; ubah <strong>selesai</strong> — durasi disesuaikan. Semua tipe (kecuali
+          milestone gate): durasi, mulai/selesai, predecessor + relasi FS/SS/FF/SF dihitung
+          ulang konsisten (hari kerja).
+          {recalcBusy ? " Menghitung ulang tanggal…" : ""}
         </p>
       </div>
-      <div className="table-scroll">
+      <div className="table-scroll table-scroll--timeline">
         <table className="data-table data-table--timeline">
+          <colgroup>
+            {canEdit && <col className="timeline-col-order" />}
+            <col className="timeline-col-name" />
+            <col className="timeline-col-duration" />
+            <col className="timeline-col-date" />
+            <col className="timeline-col-date" />
+            <col className="timeline-col-parent" />
+            <col className="timeline-col-pred" />
+            <col className="timeline-col-pred-type" />
+            <col className="timeline-col-type" />
+            <col className="timeline-col-weight" />
+            {canEdit && <col className="timeline-col-action" />}
+            <col className="timeline-col-notes" />
+          </colgroup>
           <thead>
             <tr>
               {canEdit && <th className="timeline-col-order">Urutan</th>}
-              <th>Nama</th>
-              <th>Catatan / deskripsi</th>
-              <th>Durasi (hari kerja)</th>
-              <th>Mulai</th>
-              <th>Selesai</th>
-              <th>Parent</th>
-              <th>Tipe</th>
-              <th>Bobot %</th>
-              {canEdit && <th />}
+              <th className="timeline-col-name">Nama</th>
+              <th className="timeline-col-duration">Durasi (hari kerja)</th>
+              <th className="timeline-col-date">Mulai</th>
+              <th className="timeline-col-date">Selesai</th>
+              <th className="timeline-col-parent">Parent</th>
+              <th className="timeline-col-pred">Predecessor</th>
+              <th className="timeline-col-pred-type">Relasi</th>
+              <th className="timeline-col-type">Tipe</th>
+              <th className="timeline-col-weight">Bobot %</th>
+              {canEdit && <th className="timeline-col-action">Aksi</th>}
+              <th className="timeline-col-notes">Catatan</th>
             </tr>
           </thead>
           <tbody>
@@ -3176,9 +3530,11 @@ function DraftTimelineTable({
                         title="Naikkan"
                         disabled={index === 0}
                         aria-label="Naikkan baris"
-                        onClick={() =>
-                          setDraftTimeline(moveDraftRow(draftTimeline, index, -1))
-                        }
+                        onClick={() => {
+                          const next = moveDraftRow(draftTimeline, index, -1);
+                          setDraftTimeline(next);
+                          scheduleServerRecalc(next);
+                        }}
                       >
                         ↑
                       </button>
@@ -3188,20 +3544,23 @@ function DraftTimelineTable({
                         title="Turunkan"
                         disabled={index === draftTimeline.length - 1}
                         aria-label="Turunkan baris"
-                        onClick={() =>
-                          setDraftTimeline(moveDraftRow(draftTimeline, index, 1))
-                        }
+                        onClick={() => {
+                          const next = moveDraftRow(draftTimeline, index, 1);
+                          setDraftTimeline(next);
+                          scheduleServerRecalc(next);
+                        }}
                       >
                         ↓
                       </button>
                     </div>
                   </td>
                 )}
-                <td>
+                <td className="timeline-col-name">
                   <input
-                    className="sph-inline-input"
+                    className="sph-inline-input sph-inline-input--name"
                     value={row.name}
                     readOnly={!canEdit}
+                    title={row.name}
                     onChange={(e) => {
                       const next = [...draftTimeline];
                       next[index] = { ...next[index], name: e.target.value };
@@ -3209,64 +3568,102 @@ function DraftTimelineTable({
                     }}
                   />
                 </td>
-                <td className="timeline-col-notes">
-                  <input
-                    className="sph-inline-input sph-inline-input--notes"
-                    value={row.notes ?? ""}
-                    readOnly={!canEdit}
-                    placeholder="Opsional"
-                    onChange={(e) => {
-                      const next = [...draftTimeline];
-                      next[index] = { ...next[index], notes: e.target.value };
-                      setDraftTimeline(next);
-                    }}
-                  />
-                </td>
-                <td>
+                <td className="timeline-col-duration">
                   <input
                     type="number"
-                    min={0}
+                    min={1}
                     className="sph-inline-input"
                     disabled={row.item_type === "milestone"}
+                    title={
+                      row.item_type === "milestone"
+                        ? "Milestone gate — durasi 0"
+                        : "Hari kerja — selesai disesuaikan (predecessor + relasi + mulai)"
+                    }
                     value={row.item_type === "milestone" ? 0 : row.duration_days}
                     readOnly={!canEdit}
                     onChange={(e) => {
-                      const next = [...draftTimeline];
-                      next[index] = {
-                        ...next[index],
-                        duration_days: Number(e.target.value) || 1,
-                      };
+                      const parsed = Number(e.target.value);
+                      const next = patchDraftRowSchedule(
+                        draftTimeline,
+                        index,
+                        {
+                          duration_days: Number.isFinite(parsed) && parsed >= 1 ? parsed : 1,
+                          target_date: null,
+                        },
+                        "duration",
+                      );
                       setDraftTimeline(next);
+                      scheduleServerRecalc(next);
                     }}
                   />
                 </td>
-                <td>
-                  <span className="cell-date">{formatDisplayDate(row.start_date)}</span>
+                <td className="timeline-col-date">
+                  {canEdit && row.item_type !== "milestone" ? (
+                    <input
+                      type="date"
+                      className="sph-inline-input"
+                      value={toDateInputValue(row.start_date)}
+                      onChange={(e) => {
+                        const start = e.target.value || null;
+                        const next = patchDraftRowSchedule(
+                          draftTimeline,
+                          index,
+                          { start_date: start, target_date: null },
+                          "start",
+                        );
+                        setDraftTimeline(next);
+                        scheduleServerRecalc(next);
+                      }}
+                    />
+                  ) : (
+                    <span className="cell-date">{formatDisplayDate(row.start_date)}</span>
+                  )}
                 </td>
-                <td>
-                  {row.item_type === "milestone" && canEdit ? (
+                <td className="timeline-col-date">
+                  {canEdit ? (
                     <input
                       type="date"
                       className="sph-inline-input"
                       value={toDateInputValue(row.target_date)}
                       onChange={(e) => {
+                        const target = e.target.value || null;
                         const next = [...draftTimeline];
-                        next[index] = {
-                          ...next[index],
-                          target_date: e.target.value || null,
-                          start_date: e.target.value || null,
-                        };
-                        setDraftTimeline(next);
+                        if (row.item_type === "milestone") {
+                          next[index] = {
+                            ...next[index],
+                            target_date: target,
+                            start_date: target,
+                          };
+                          setDraftTimeline(next);
+                          scheduleServerRecalc(next);
+                        } else {
+                          const patched = patchDraftRowSchedule(
+                            draftTimeline,
+                            index,
+                            { target_date: target },
+                            "end",
+                          );
+                          setDraftTimeline(patched);
+                          scheduleServerRecalc(patched);
+                        }
                       }}
                     />
                   ) : (
                     <span className="cell-date">{formatDisplayDate(row.target_date)}</span>
                   )}
                 </td>
-                <td>
+                <td className="timeline-col-parent">
                   {canEdit ? (
                     <select
+                      className="timeline-parent-select"
                       value={row.parent_ref ?? ""}
+                      title={
+                        draftTimeline.find(
+                          (p) =>
+                            (p.row_key && p.row_key === row.parent_ref) ||
+                            String(p.id) === row.parent_ref,
+                        )?.name ?? "Root"
+                      }
                       onChange={(e) => {
                         const next = [...draftTimeline];
                         next[index] = {
@@ -3274,6 +3671,7 @@ function DraftTimelineTable({
                           parent_ref: e.target.value || null,
                         };
                         setDraftTimeline(next);
+                        scheduleServerRecalc(next);
                       }}
                     >
                       <option value="">— root —</option>
@@ -3292,7 +3690,90 @@ function DraftTimelineTable({
                     (row.parent_ref ?? "—")
                   )}
                 </td>
-                <td>
+                <td className="timeline-col-pred">
+                  {canEdit && row.item_type !== "milestone" ? (
+                    <select
+                      className="timeline-pred-select"
+                      value={row.predecessor_ref ?? ""}
+                      title="Predecessor — tanggal mengikuti relasi FS/SS/FF/SF"
+                      onChange={(e) => {
+                        const val = e.target.value || null;
+                        const next = patchDraftRowSchedule(
+                          draftTimeline,
+                          index,
+                          {
+                            predecessor_ref: val,
+                            predecessor_link_type: val
+                              ? normalizePredecessorLinkType(row.predecessor_link_type)
+                              : null,
+                            target_date: null,
+                          },
+                          "duration",
+                        );
+                        setDraftTimeline(next);
+                        scheduleServerRecalc(next);
+                      }}
+                    >
+                      <option value="">— (rantai urutan) —</option>
+                      {draftPredecessorOptions(draftTimeline, index).map((o) => (
+                        <option key={o.ref} value={o.ref}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="cell-muted">
+                      {row.predecessor_ref
+                        ? draftTimeline.find(
+                            (p) =>
+                              (p.row_key && p.row_key === row.predecessor_ref) ||
+                              String(p.id) === row.predecessor_ref,
+                          )?.name ?? row.predecessor_ref
+                        : "—"}
+                    </span>
+                  )}
+                </td>
+                <td className="timeline-col-pred-type">
+                  {canEdit && row.item_type !== "milestone" ? (
+                    <select
+                      className="timeline-pred-link-select"
+                      value={normalizePredecessorLinkType(row.predecessor_link_type)}
+                      disabled={!row.predecessor_ref}
+                      title={
+                        PREDECESSOR_LINK_OPTIONS.find(
+                          (o) =>
+                            o.value === normalizePredecessorLinkType(row.predecessor_link_type),
+                        )?.hint
+                      }
+                      onChange={(e) => {
+                        const next = patchDraftRowSchedule(
+                          draftTimeline,
+                          index,
+                          {
+                            predecessor_link_type: e.target.value,
+                            target_date: null,
+                          },
+                          "duration",
+                        );
+                        setDraftTimeline(next);
+                        scheduleServerRecalc(next);
+                      }}
+                    >
+                      {PREDECESSOR_LINK_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.value}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="cell-muted">
+                      {row.predecessor_ref
+                        ? normalizePredecessorLinkType(row.predecessor_link_type)
+                        : "—"}
+                    </span>
+                  )}
+                </td>
+                <td className="timeline-col-type">
                   {canEdit ? (
                     <select
                       value={row.item_type}
@@ -3305,6 +3786,7 @@ function DraftTimelineTable({
                           ...(t === "milestone" ? { weight_pct: 0, duration_days: 0 } : {}),
                         };
                         setDraftTimeline(next);
+                        scheduleServerRecalc(next);
                       }}
                     >
                       <option value="phase">phase</option>
@@ -3316,7 +3798,7 @@ function DraftTimelineTable({
                     row.item_type
                   )}
                 </td>
-                <td>
+                <td className="timeline-col-weight">
                   <input
                     type="number"
                     className="sph-inline-input"
@@ -3333,22 +3815,35 @@ function DraftTimelineTable({
                   />
                 </td>
                 {canEdit && (
-                  <td>
+                  <td className="timeline-col-action">
                     <button
                       type="button"
                       className="danger-link"
-                      onClick={() =>
-                        setDraftTimeline(
-                          normalizeDraftSortOrder(
-                            draftTimeline.filter((_, i) => i !== index),
-                          ),
-                        )
-                      }
+                      onClick={() => {
+                        const next = normalizeDraftSortOrder(
+                          draftTimeline.filter((_, i) => i !== index),
+                        );
+                        setDraftTimeline(next);
+                        scheduleServerRecalc(next);
+                      }}
                     >
                       Hapus
                     </button>
                   </td>
                 )}
+                <td className="timeline-col-notes">
+                  <input
+                    className="sph-inline-input sph-inline-input--notes"
+                    value={row.notes ?? ""}
+                    readOnly={!canEdit}
+                    placeholder="Opsional"
+                    onChange={(e) => {
+                      const next = [...draftTimeline];
+                      next[index] = { ...next[index], notes: e.target.value };
+                      setDraftTimeline(next);
+                    }}
+                  />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -3359,27 +3854,42 @@ function DraftTimelineTable({
           <button
             type="button"
             className="btn-add-row"
-            onClick={() =>
-              setDraftTimeline(
-                normalizeDraftSortOrder([
-                  ...draftTimeline,
-                  {
-                    name: "Baru",
-                    duration_days: 1,
-                    weight_pct: 0,
-                    item_type: "task",
-                    parent_ref: null,
-                    sort_order: draftTimeline.length,
-                    row_key: `row_${newId().slice(0, 8)}`,
-                    notes: "",
-                  },
-                ]),
-              )
-            }
+            onClick={() => {
+              const parentRef = defaultParentForNewRow(draftTimeline);
+              const isRootPhase = !parentRef;
+              const next = normalizeDraftSortOrder([
+                ...draftTimeline,
+                {
+                  name: "Baru",
+                  duration_days: 1,
+                  weight_pct: 0,
+                  item_type: parentRef ? "task" : "phase",
+                  parent_ref: parentRef,
+                  predecessor_ref: isRootPhase ? lastRootPhaseRowRef(draftTimeline) : null,
+                  predecessor_link_type: isRootPhase ? "FS" : null,
+                  sort_order: draftTimeline.length,
+                  row_key: `row_${newId().slice(0, 8)}`,
+                  notes: "",
+                },
+              ]);
+              setDraftTimeline(next);
+              setRecalcError("");
+              scheduleServerRecalc(next);
+            }}
           >
             + Tambah baris timeline
           </button>
-          <button type="button" className="primary" onClick={handleSave}>
+          <button
+            type="button"
+            className="primary"
+            disabled={!weightCheck.ok}
+            title={
+              !weightCheck.ok
+                ? "Perbaiki bobot/struktur timeline sebelum simpan"
+                : undefined
+            }
+            onClick={handleSave}
+          >
             Simpan & hitung ulang tanggal
           </button>
         </div>
@@ -3421,6 +3931,7 @@ function SphTab({
   });
   const [isComplete, setIsComplete] = useState(false);
   const [draftTimeline, setDraftTimeline] = useState<DraftTimelineRow[]>([]);
+  const [projectTimeline, setProjectTimeline] = useState<ProjectTimelineSummary | null>(null);
   const [sphReadOnly, setSphReadOnly] = useState(false);
   const canEditSph = timelineEditable && !sphReadOnly && !readOnlyPhase;
   const [templates, setTemplates] = useState<
@@ -3429,7 +3940,7 @@ function SphTab({
   const [timelineTemplateId, setTimelineTemplateId] = useState("");
   const [methodology, setMethodology] = useState(projectMethodology);
   const [scopeItems, setScopeItems] = useState<LineItemRow[]>([]);
-  const [nonScopeItems, setNonScopeItems] = useState<LineItemRow[]>([]);
+  const [nonScopeText, setNonScopeText] = useState("");
   const [deliveryItems, setDeliveryItems] = useState<DeliveryItemRow[]>([]);
   const [sphTotal, setSphTotal] = useState(0);
   const [paymentTerms, setPaymentTerms] = useState<PaymentTermRow[]>([]);
@@ -3455,6 +3966,7 @@ function SphTab({
       planned_md: number | null;
       timeline_template_id: number | null;
       draft_timeline: DraftTimelineRow[];
+      project_timeline?: ProjectTimelineSummary;
       is_complete: boolean;
       draft_baseline_generated_at?: string | null;
       payment_terms: {
@@ -3474,6 +3986,7 @@ function SphTab({
         sort_order: r.sort_order ?? idx,
       }));
       setDraftTimeline(draftRowsWithParentRefs(rawDraft));
+      setProjectTimeline(s.project_timeline ?? null);
       setTimelineTemplateId(
         s.timeline_template_id != null ? String(s.timeline_template_id) : "",
       );
@@ -3511,7 +4024,16 @@ function SphTab({
         return [];
       };
       setScopeItems(toLines(s.scope_items ?? [], s.scope_text ?? "", true));
-      setNonScopeItems(toLines(s.non_scope_items ?? [], s.non_scope_text ?? ""));
+      if ((s.non_scope_text ?? "").trim()) {
+        setNonScopeText(s.non_scope_text ?? "");
+      } else {
+        setNonScopeText(
+          (s.non_scope_items ?? [])
+            .map((i) => (i.text ?? "").trim())
+            .filter(Boolean)
+            .join("\n"),
+        );
+      }
       setDeliveryItems(
         (s.delivery_items ?? []).map((d) => ({
           id: d.id || newId(),
@@ -3558,6 +4080,7 @@ function SphTab({
       const rowsPayload = draftRowsWithParentRefs(draftTimeline);
       const res = await api<{
         draft_timeline: DraftTimelineRow[];
+        project_timeline?: ProjectTimelineSummary;
         payment_terms?: {
           label?: string;
           due_date?: string | null;
@@ -3578,14 +4101,24 @@ function SphTab({
             item_type: r.item_type,
             parent_ref: r.parent_ref || null,
             parent_id: r.parent_id ?? null,
-            target_date: r.item_type === "milestone" ? r.target_date : undefined,
+            start_date: r.start_date || null,
+            target_date: r.target_date || null,
+            predecessor_ref: r.predecessor_ref || null,
+            predecessor_link_type: r.predecessor_ref
+              ? normalizePredecessorLinkType(r.predecessor_link_type)
+              : null,
+            schedule_driver: r.schedule_driver ?? null,
             sort_order: idx,
             notes: (r.notes ?? "").trim() || null,
           })),
         }),
       });
-      const mappedDraft = draftRowsWithParentRefs(res.draft_timeline);
+      const mappedDraft = mergeDraftTimelineNotes(
+        draftTimeline,
+        draftRowsWithParentRefs(res.draft_timeline),
+      );
       setDraftTimeline(mappedDraft);
+      setProjectTimeline(res.project_timeline ?? null);
       if (res.payment_terms !== undefined) {
         setPaymentTerms(mapPaymentTermsFromApi(res.payment_terms));
       } else if (
@@ -3625,9 +4158,7 @@ function SphTab({
               module: (module ?? "").trim(),
               text: text.trim(),
             })),
-          non_scope_items: nonScopeItems
-            .filter((i) => i.text.trim())
-            .map(({ id, text }) => ({ id, text: text.trim() })),
+          non_scope_text: nonScopeText.trim() || null,
           delivery_items: deliveryItems
             .filter((i) => i.name.trim())
             .map(({ id, name, amount_rupiah }) => ({
@@ -3871,10 +4402,15 @@ function SphTab({
           showModule
         />
         <h3 className="subsection-title">Non scope</h3>
-        <SphLineList
-          items={nonScopeItems}
-          setItems={setNonScopeItems}
-          placeholder="Item di luar scope..."
+        <p className="text-muted">
+          Tulis item atau penjelasan di luar scope (satu baris per poin, opsional).
+        </p>
+        <textarea
+          className="sph-scope-textarea"
+          rows={5}
+          value={nonScopeText}
+          placeholder="Contoh: Perubahan regulasi pihak ketiga di luar kontrol vendor…"
+          onChange={(e) => setNonScopeText(e.target.value)}
         />
         <h3 className="subsection-title">Item delivery</h3>
         <p className="text-muted">Total SPH dihitung dari jumlah nilai item delivery.</p>
@@ -4013,6 +4549,12 @@ function SphTab({
                   .catch((e) => setMsg(getErrorMessage(e)));
               }}
             />
+            {formatProjectTimelineSummary(projectTimeline) && (
+              <p className="text-muted" style={{ marginTop: "0.35rem", fontSize: "0.9rem" }}>
+                Durasi aktual dari timeline:{" "}
+                <strong>{formatProjectTimelineSummary(projectTimeline)}</strong>
+              </p>
+            )}
           </div>
           <div className="form-row">
             <label>Tipe proyek</label>
@@ -4067,8 +4609,12 @@ function SphTab({
         {draftTimeline.length > 0 && (
           <DraftTimelineTable
             canEdit={canEditSph}
+            projectId={projectId}
+            timelineStart={form.estimated_start_date || null}
             draftTimeline={draftTimeline}
             setDraftTimeline={setDraftTimeline}
+            projectTimeline={projectTimeline}
+            onProjectTimelineChange={setProjectTimeline}
             onSave={saveDraftTimeline}
           />
         )}
@@ -4346,6 +4892,7 @@ type PreKickoffPack = {
   draft_timeline: DraftTimelineRow[];
   draft_timeline_ready: boolean;
   estimated_start_date: string | null;
+  project_timeline?: ProjectTimelineSummary;
   timeline_confirmed: boolean;
   is_complete: boolean;
 };
@@ -4366,6 +4913,7 @@ function PreKickoffTab({
   const [deckModal, setDeckModal] = useState(false);
   const [deckBusy, setDeckBusy] = useState(false);
   const [draftTimeline, setDraftTimeline] = useState<DraftTimelineRow[]>([]);
+  const [projectTimeline, setProjectTimeline] = useState<ProjectTimelineSummary | null>(null);
   const [estimatedStart, setEstimatedStart] = useState("");
   const textFields = ["background", "timeline_summary", "next_activities"] as const;
   const load = () =>
@@ -4394,12 +4942,15 @@ function PreKickoffTab({
             parent_ref: r.parent_ref,
             sort_order: r.sort_order ?? idx,
             notes: r.notes ?? "",
+            predecessor_ref: r.predecessor_ref ?? null,
+            predecessor_link_type: r.predecessor_link_type ?? null,
           })),
         ),
       );
       setEstimatedStart(
         p.estimated_start_date ? toDateInputValue(p.estimated_start_date) : "",
       );
+      setProjectTimeline(p.project_timeline ?? null);
     });
   useEffect(() => {
     load().catch((e) => setMsg(getErrorMessage(e)));
@@ -4442,9 +4993,10 @@ function PreKickoffTab({
     }
     try {
       const rowsPayload = draftRowsWithParentRefs(draftTimeline);
-      const res = await api<{ draft_timeline: DraftTimelineRow[] }>(
-        `/projects/${projectId}/sph/draft-timeline`,
-        {
+      const res = await api<{
+        draft_timeline: DraftTimelineRow[];
+        project_timeline?: ProjectTimelineSummary;
+      }>(`/projects/${projectId}/sph/draft-timeline`, {
           method: "PUT",
           body: JSON.stringify({
             start_date: estimatedStart || null,
@@ -4457,15 +5009,27 @@ function PreKickoffTab({
               item_type: r.item_type,
               parent_ref: r.parent_ref || null,
               parent_id: r.parent_id ?? null,
-              target_date: r.item_type === "milestone" ? r.target_date : undefined,
+              start_date: r.start_date || null,
+              target_date: r.target_date || null,
+              predecessor_ref: r.predecessor_ref || null,
+              predecessor_link_type: r.predecessor_ref
+                ? normalizePredecessorLinkType(r.predecessor_link_type)
+                : null,
+              schedule_driver: r.schedule_driver ?? null,
               sort_order: idx,
               notes: (r.notes ?? "").trim() || null,
             })),
           }),
         },
       );
-      setDraftTimeline(draftRowsWithParentRefs(res.draft_timeline));
-      setMsg("Draft timeline disimpan — tanggal dihitung ulang.");
+      setDraftTimeline(
+        mergeDraftTimelineNotes(
+          draftTimeline,
+          draftRowsWithParentRefs(res.draft_timeline),
+        ),
+      );
+      setProjectTimeline(res.project_timeline ?? null);
+      setMsg("Draft timeline disimpan — tanggal dihitung ulang (kalender kerja).");
       onTimelineChanged?.();
       load();
       onProjectRefresh?.();
@@ -4644,8 +5208,12 @@ function PreKickoffTab({
             </div>
             <DraftTimelineTable
               canEdit={canEditDraft}
+              projectId={projectId}
+              timelineStart={estimatedStart || null}
               draftTimeline={draftTimeline}
               setDraftTimeline={setDraftTimeline}
+              projectTimeline={projectTimeline}
+              onProjectTimelineChange={setProjectTimeline}
               onSave={saveKickoffDraftTimeline}
             />
             {!pack.timeline_confirmed && draftTimeline.length > 0 && (

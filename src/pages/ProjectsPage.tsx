@@ -88,6 +88,29 @@ export default function ProjectsPage() {
     }
   }, [showNewForm, canWrite]);
 
+  const canDuplicate = (p: Project) => p.current_phase === "po_received";
+
+  const duplicateProject = async (p: Project) => {
+    if (!canDuplicate(p)) return;
+    if (
+      !window.confirm(
+        `Duplikat proyek ${p.code} (${p.name})?\n\nSalinan baru tetap di fase SPH. SPH No. dikosongkan; kode proyek baru digenerate.`,
+      )
+    ) {
+      return;
+    }
+    setError("");
+    try {
+      const created = await api<ProjectCreated>(`/projects/${p.id}/duplicate`, {
+        method: "POST",
+      });
+      await load();
+      navigate(`/projects/${created.id}`);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  };
+
   const deleteProject = async (p: Project) => {
     if (
       !window.confirm(
@@ -368,13 +391,24 @@ export default function ProjectsPage() {
                       </td>
                       {canWrite && (
                         <td className="project-list-col-actions">
-                          <button
-                            type="button"
-                            className="danger-link"
-                            onClick={() => deleteProject(p)}
-                          >
-                            Hapus
-                          </button>
+                          <div className="project-list-actions">
+                            {canDuplicate(p) && (
+                              <button
+                                type="button"
+                                className="link-button"
+                                onClick={() => duplicateProject(p)}
+                              >
+                                Duplikat
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="danger-link"
+                              onClick={() => deleteProject(p)}
+                            >
+                              Hapus
+                            </button>
+                          </div>
                         </td>
                       )}
                     </tr>
