@@ -48,6 +48,8 @@ function localizeApiDetail(core: string): string {
   const labels: Record<string, string> = {
     "File missing": "Berkas laporan tidak ada di server",
     "File missing on disk": "Berkas dokumen tidak ada di server",
+    "Insufficient permissions":
+      "Izin tidak cukup — hubungi admin (peran PM/Delivery/Finance untuk tab Reports).",
   };
   return labels[key] ?? core;
 }
