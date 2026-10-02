@@ -45,3 +45,14 @@ export function formatDisplayDateFromMs(ms: number): string {
   const day = String(d.getDate()).padStart(2, "0");
   return formatDisplayDate(`${y}-${m}-${day}`);
 }
+
+/** Rentang tanggal tampilan konsisten (DD/MM/YYYY). */
+export function formatDisplayDateRange(
+  start: string | null | undefined,
+  end: string | null | undefined,
+  separator = " — ",
+): string {
+  if (!start && !end) return "—";
+  if (start && end) return `${formatDisplayDate(start)}${separator}${formatDisplayDate(end)}`;
+  return formatDisplayDate(start ?? end);
+}

@@ -45,6 +45,7 @@ import { TabDocumentUpload } from "../components/TabDocumentUpload";
 import {
   formatDisplayDate,
   formatDisplayDateFromMs,
+  formatDisplayDateRange,
   formatDisplayDateTime,
   toDateInputValue,
 } from "../lib/formatDate";
@@ -167,6 +168,41 @@ const TAB_READONLY_MSG = {
 
 function TabReadOnlyNotice({ message }: { message: string }) {
   return <UserNotice message={message} variant="info" className="tab-readonly-notice" />;
+}
+
+/** Footer simpan per tab — tombol kanan, garis pemisah konsisten. */
+function TabFormFooter({
+  children,
+  hint,
+}: {
+  children: ReactNode;
+  hint?: string;
+}) {
+  return (
+    <footer className="tab-form-footer">
+      <div className="tab-form-footer__actions">{children}</div>
+      {hint ? <p className="tab-form-footer__hint text-muted">{hint}</p> : null}
+    </footer>
+  );
+}
+
+/** Lanjut / konfirmasi fase — selaras dengan panel kesehatan proyek. */
+function TabPhaseFooter({
+  children,
+  hint,
+  nested,
+}: {
+  children: ReactNode;
+  hint?: string;
+  /** Di dalam panel kesehatan — tanpa garis atas ganda. */
+  nested?: boolean;
+}) {
+  return (
+    <footer className={`tab-phase-footer${nested ? " tab-phase-footer--nested" : ""}`}>
+      <div className="tab-phase-footer__actions">{children}</div>
+      {hint ? <p className="tab-phase-footer__hint text-muted">{hint}</p> : null}
+    </footer>
+  );
 }
 
 function priorPhasesReadOnly(detail: ProjectDetail): boolean {
@@ -671,8 +707,12 @@ function ProjectHealthPanel({
               detail.health.snapshot_week_start && (
                 <>
                   {" "}
-                  Periode weekly (terkunci): {detail.health.snapshot_week_start} —{" "}
-                  {detail.health.snapshot_week_end}.
+                  Periode weekly (terkunci):{" "}
+                  {formatDisplayDateRange(
+                    detail.health.snapshot_week_start,
+                    detail.health.snapshot_week_end,
+                  )}
+                  .
                 </>
               )}
           </>
@@ -700,20 +740,7 @@ function ProjectHealthPanel({
           )}
 
           {canAdvance && (
-            <div className="project-health-actions">
-              <button
-                type="button"
-                className="primary"
-                onClick={onAdvance}
-                disabled={advanceBusy || gateLoading || (gate ? !gate.can_advance : false)}
-                aria-busy={advanceBusy || gateLoading}
-              >
-                {advanceBusy
-                  ? "Memproses…"
-                  : gateLoading
-                    ? "Memuat syarat…"
-                    : `Lanjut fase${gate?.next_phase ? ` → ${PHASE_NEXT_LABEL[gate.next_phase] ?? gate.next_phase}` : ""}`}
-              </button>
+            <TabPhaseFooter nested>
               {showDeckLink && (
                 <button
                   type="button"
@@ -729,7 +756,20 @@ function ProjectHealthPanel({
                   Unduh deck presentasi
                 </button>
               )}
-            </div>
+              <button
+                type="button"
+                className="primary btn-phase-advance"
+                onClick={onAdvance}
+                disabled={advanceBusy || gateLoading || (gate ? !gate.can_advance : false)}
+                aria-busy={advanceBusy || gateLoading}
+              >
+                {advanceBusy
+                  ? "Memproses…"
+                  : gateLoading
+                    ? "Memuat syarat…"
+                    : `Lanjut fase${gate?.next_phase ? ` → ${PHASE_NEXT_LABEL[gate.next_phase] ?? gate.next_phase}` : ""}`}
+              </button>
+            </TabPhaseFooter>
           )}
 
           {canShowDelete && (
@@ -924,9 +964,11 @@ function ChangeRequestsTab({
               />
             </div>
           </div>
-          <button type="submit" className="primary">
-            Simpan draft CR
-          </button>
+          <TabFormFooter hint="Draft disimpan di proyek; lanjutkan workflow persetujuan CR bila diperlukan.">
+            <button type="submit" className="primary">
+              Simpan draft CR
+            </button>
+          </TabFormFooter>
         </form>
       )}
       <div className="table-scroll" style={{ marginTop: "1rem" }}>
@@ -1439,9 +1481,11 @@ function PoTab({
         </p>
         </div>
 
-        <button type="button" className="primary" onClick={save} disabled={readOnly}>
-          Simpan PO
-        </button>
+        <TabFormFooter hint="Menyimpan header PO, termin, dan baris layanan.">
+          <button type="button" className="primary" onClick={save} disabled={readOnly}>
+            Simpan PO
+          </button>
+        </TabFormFooter>
       </fieldset>
       <TabDocumentUpload
         projectId={projectId}
@@ -1715,7 +1759,7 @@ function TaskRecapTables({
                 <div>
                   <ProgressBar pct={t.percent_complete} />
                 </div>
-                <div className="task-recap-due">{t.due_date ?? "—"}</div>
+                <div className="task-recap-due">{formatDisplayDate(t.due_date)}</div>
                 <div>{t.is_closed ? "Ya" : "Tidak"}</div>
               </div>
             ))
@@ -2433,7 +2477,7 @@ function MilestonesTab({
             (hari kerja).
           </p>
           <TabAlert message={startMsg} />
-          <div className="ui-toolbar">
+          <TabFormFooter>
             <button
               type="button"
               className="primary"
@@ -2442,7 +2486,7 @@ function MilestonesTab({
             >
               {startBusy ? "Menyimpan…" : "Simpan tanggal start proyek"}
             </button>
-          </div>
+          </TabFormFooter>
         </div>
       )}
       <TabAlert message={err} variant="error" />
@@ -3890,49 +3934,53 @@ function DraftTimelineTable({
         </table>
       </div>
       {canEdit && (
-        <div className="ui-toolbar">
-          <button
-            type="button"
-            className="btn-add-row"
-            onClick={() => {
-              const parentRef = defaultParentForNewRow(draftTimeline);
-              const isRootPhase = !parentRef;
-              const next = normalizeDraftSortOrder([
-                ...draftTimeline,
-                {
-                  name: "Baru",
-                  duration_days: 1,
-                  weight_pct: 0,
-                  item_type: parentRef ? "task" : "phase",
-                  parent_ref: parentRef,
-                  predecessor_ref: isRootPhase ? lastRootPhaseRowRef(draftTimeline) : null,
-                  predecessor_link_type: isRootPhase ? "FS" : null,
-                  sort_order: draftTimeline.length,
-                  row_key: `row_${newId().slice(0, 8)}`,
-                  notes: "",
-                },
-              ]);
-              setDraftTimeline(next);
-              setRecalcError("");
-              scheduleServerRecalc(next);
-            }}
-          >
-            + Tambah baris timeline
-          </button>
-          <button
-            type="button"
-            className="primary"
-            disabled={!weightCheck.ok}
-            title={
-              !weightCheck.ok
-                ? "Perbaiki bobot/struktur timeline sebelum simpan"
-                : undefined
-            }
-            onClick={handleSave}
-          >
-            Simpan & hitung ulang tanggal
-          </button>
-        </div>
+        <>
+          <div className="ui-toolbar ui-toolbar--start">
+            <button
+              type="button"
+              className="btn-add-row"
+              onClick={() => {
+                const parentRef = defaultParentForNewRow(draftTimeline);
+                const isRootPhase = !parentRef;
+                const next = normalizeDraftSortOrder([
+                  ...draftTimeline,
+                  {
+                    name: "Baru",
+                    duration_days: 1,
+                    weight_pct: 0,
+                    item_type: parentRef ? "task" : "phase",
+                    parent_ref: parentRef,
+                    predecessor_ref: isRootPhase ? lastRootPhaseRowRef(draftTimeline) : null,
+                    predecessor_link_type: isRootPhase ? "FS" : null,
+                    sort_order: draftTimeline.length,
+                    row_key: `row_${newId().slice(0, 8)}`,
+                    notes: "",
+                  },
+                ]);
+                setDraftTimeline(next);
+                setRecalcError("");
+                scheduleServerRecalc(next);
+              }}
+            >
+              + Tambah baris timeline
+            </button>
+          </div>
+          <TabFormFooter hint="Menyimpan draft timeline dan menghitung ulang tanggal dari kalender kerja.">
+            <button
+              type="button"
+              className="primary"
+              disabled={!weightCheck.ok}
+              title={
+                !weightCheck.ok
+                  ? "Perbaiki bobot/struktur timeline sebelum simpan"
+                  : undefined
+              }
+              onClick={handleSave}
+            >
+              Simpan & hitung ulang tanggal
+            </button>
+          </TabFormFooter>
+        </>
       )}
     </>
   );
@@ -4441,17 +4489,32 @@ function SphTab({
           placeholder="Use case / item scope..."
           showModule
         />
-        <h3 className="subsection-title">Non scope</h3>
-        <p className="text-muted">
-          Tulis item atau penjelasan di luar scope (satu baris per poin, opsional).
-        </p>
-        <textarea
-          className="sph-scope-textarea"
-          rows={5}
-          value={nonScopeText}
-          placeholder="Contoh: Perubahan regulasi pihak ketiga di luar kontrol vendor…"
-          onChange={(e) => setNonScopeText(e.target.value)}
-        />
+        <section className="sph-non-scope" aria-labelledby="sph-non-scope-heading">
+          <div className="sph-non-scope__header">
+            <div>
+              <h3 id="sph-non-scope-heading" className="subsection-title sph-non-scope__title">
+                Non scope
+              </h3>
+              <p className="text-muted sph-non-scope__lead">
+                Di luar SOW — satu baris per poin; gunakan baris kosong untuk memisahkan paragraf.
+              </p>
+            </div>
+            <span className="sph-non-scope__meta" aria-live="polite">
+              {nonScopeText.split(/\r?\n/).filter((l) => l.trim()).length} poin
+            </span>
+          </div>
+          <div className="sph-non-scope__body">
+            <textarea
+              className="sph-scope-textarea"
+              rows={8}
+              value={nonScopeText}
+              placeholder={
+                "• Upgrade infrastruktur di lingkungan klien\n• Lisensi pihak ketiga di luar paket SPH\n• …"
+              }
+              onChange={(e) => setNonScopeText(e.target.value)}
+            />
+          </div>
+        </section>
         <h3 className="subsection-title">Item delivery</h3>
         <p className="text-muted">Total SPH dihitung dari jumlah nilai item delivery.</p>
         <div className="sph-list-panel">
@@ -4530,9 +4593,11 @@ function SphTab({
             Total SPH: <strong>{formatRupiah(sphTotal || deliveryTotal)}</strong>
           </p>
         </div>
-        <button type="submit" className="primary">
-          Simpan SPH
-        </button>
+        <TabFormFooter hint="Menyimpan identitas SPH, scope, non scope, dan item delivery.">
+          <button type="submit" className="primary">
+            Simpan SPH
+          </button>
+        </TabFormFooter>
         </fieldset>
       </form>
       <hr className="card-divider" />
@@ -4769,20 +4834,22 @@ function SphTab({
           </table>
           </div>
         )}
-        <div className="ui-toolbar">
+        <TabFormFooter hint="Termin ter-map ke milestone draft setelah simpan & hitung ulang timeline.">
           <button type="button" className="btn-add-row" onClick={addPaymentTerm}>
             Tambah termin
           </button>
           <button type="button" className="primary" onClick={savePaymentTerms}>
             Simpan termin pembayaran
           </button>
-        </div>
+        </TabFormFooter>
         </fieldset>
       </section>
-      <div className="ui-toolbar" style={{ marginTop: "0.25rem" }}>
+      <TabPhaseFooter
+        hint="Aktif jika SPH lengkap, draft timeline ada, dan termin disimpan. PO opsional sampai Closing."
+      >
         <button
           type="button"
-          className="primary"
+          className="primary btn-phase-advance"
           disabled={!isComplete || !canEditSph || draftTimeline.length === 0}
           title={
             isComplete
@@ -4791,13 +4858,9 @@ function SphTab({
           }
           onClick={finalizeTimelineForKickoff}
         >
-          Lanjut ke fase berikutnya «Kick Off»
+          Lanjut fase → Kick Off
         </button>
-      </div>
-      <p className="text-muted">
-        Tombol «Kick Off» aktif jika SPH lengkap, draft timeline ada, dan termin pembayaran
-        disimpan. PO opsional sampai Closing Project.
-      </p>
+      </TabPhaseFooter>
       <TabDocumentUpload
         projectId={projectId}
         docType="sph"
@@ -5274,14 +5337,18 @@ function PreKickoffTab({
               onSave={saveKickoffDraftTimeline}
             />
             {!pack.timeline_confirmed && draftTimeline.length > 0 && (
-              <div className="ui-toolbar">
-                <button type="button" className="primary" onClick={confirmTimeline}>
+              <TabPhaseFooter hint="Setelah konfirmasi, lanjut fase via panel kesehatan proyek di atas.">
+                <button
+                  type="button"
+                  className="primary btn-phase-advance"
+                  onClick={confirmTimeline}
+                >
                   Konfirmasi timeline (Kick Off OK)
                 </button>
-              </div>
+              </TabPhaseFooter>
             )}
             {pack.timeline_confirmed && (
-              <p className="text-muted">
+              <p className="text-muted tab-phase-footer__hint">
                 Timeline sudah dikonfirmasi — gunakan «Lanjut fase → Project Start» di panel
                 kesehatan proyek jika pack lengkap.
               </p>
@@ -5289,16 +5356,14 @@ function PreKickoffTab({
           </>
         )}
       </section>
-      <div className="kickoff-actions card">
-      <div className="btn-group">
-        <button type="button" className="primary" onClick={save}>
-          Simpan pack
-        </button>
+      <TabFormFooter hint="Ringkasan organisasi, deliverables, dan teks pack Kick Off.">
         <button type="button" disabled={deckBusy} onClick={openKickoffGenerate}>
           Generate kickoff deck
         </button>
-      </div>
-      </div>
+        <button type="button" className="primary" onClick={save}>
+          Simpan pack
+        </button>
+      </TabFormFooter>
       </fieldset>
       <TabDocumentUpload
         projectId={projectId}
@@ -5736,7 +5801,14 @@ function ClickUpTab({ projectId }: { projectId: number }) {
                       }
                     />
                   </div>
-                  <div className="setup-clickup-actions">
+                  <div className="setup-clickup-actions setup-clickup-actions--step">
+                    <button
+                      type="button"
+                      disabled={!cfg.configured || !cfg.clickup_folder_id.trim()}
+                      onClick={() => void loadFolderLists()}
+                    >
+                      Muat list
+                    </button>
                     <button
                       type="button"
                       className="primary"
@@ -5744,13 +5816,6 @@ function ClickUpTab({ projectId }: { projectId: number }) {
                       onClick={() => void saveClickUpCfg().then((ok) => ok && notify("Folder disimpan."))}
                     >
                       Simpan folder
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!cfg.configured || !cfg.clickup_folder_id.trim()}
-                      onClick={() => void loadFolderLists()}
-                    >
-                      Muat list
                     </button>
                   </div>
                 </div>
@@ -5833,7 +5898,7 @@ function ClickUpTab({ projectId }: { projectId: number }) {
                       ))}
                     </tbody>
                   </table>
-                  <div className="setup-clickup-actions">
+                  <div className="setup-clickup-actions setup-clickup-actions--step">
                     <button type="button" className="primary" onClick={() => void saveMilestoneMap()}>
                       Simpan mapping
                     </button>
@@ -5868,7 +5933,7 @@ function ClickUpTab({ projectId }: { projectId: number }) {
               Simpan list legacy
             </button>
           </details>
-          <div className="setup-clickup-actions" style={{ marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid var(--color-border-light)" }}>
+          <TabFormFooter hint="Simpan folder/mapping di langkah di atas; sync menarik progress task dari ClickUp.">
             <button
               type="button"
               disabled={
@@ -5880,7 +5945,7 @@ function ClickUpTab({ projectId }: { projectId: number }) {
             >
               {syncBusy ? "Sync…" : "Sync progress dari ClickUp"}
             </button>
-          </div>
+          </TabFormFooter>
           {syncBusy && (
             <div className="sync-progress-bar" role="progressbar" aria-busy="true" aria-label="Sinkronisasi ClickUp">
               <div className="sync-progress-bar__indeterminate" />
@@ -6061,11 +6126,11 @@ function ProjectRagConfig({ projectId }: { projectId: number }) {
         </div>
       </div>
       {canEdit && (
-        <div className="ui-toolbar reports-rag-actions">
-          <button type="button" className="primary" onClick={() => void save()}>
+        <TabFormFooter>
+          <button type="button" className="primary" onClick={() => void save()} disabled={!canEdit}>
             Simpan ambang RAG & SPI
           </button>
-        </div>
+        </TabFormFooter>
       )}
     </section>
   );
@@ -7289,7 +7354,7 @@ function ReportsTab({
   const [msg, setMsg] = useState("");
   const [weeklyCfg, setWeeklyCfg] = useState({
     weekly_report_anchor_weekday: 4,
-    weekly_report_cutoff_offset_days: 0,
+    weekly_report_cutoff_offset_days: 6,
     weekly_report_first_anchor_date: "",
   });
   const [anchorMeta, setAnchorMeta] = useState<{
@@ -7358,7 +7423,7 @@ function ReportsTab({
         setWeeklyCfg({
           weekly_report_anchor_weekday: p.report_weekday ?? p.weekly_report_anchor_weekday ?? 4,
           weekly_report_cutoff_offset_days:
-            p.period_length_days ?? p.weekly_report_cutoff_offset_days ?? 0,
+            p.period_length_days ?? p.weekly_report_cutoff_offset_days ?? 6,
           weekly_report_first_anchor_date: toDateInputValue(
             p.first_report_date ?? p.weekly_report_first_anchor_date,
           ),
@@ -7761,7 +7826,15 @@ function ReportsTab({
               </p>
             </div>
           </div>
-          <div className="ui-toolbar weekly-schedule-actions">
+          <TabFormFooter hint="Jadwal laporan mempengaruhi periode S-curve dan weekly report.">
+            <button
+              type="button"
+              disabled={!canSaveWeekSnapshot}
+              title={canSaveWeekSnapshot ? undefined : "Butuh izin schedule.save_week (PM)"}
+              onClick={() => void generateAnchorTargets()}
+            >
+              Generate target weekly report
+            </button>
             <button
               type="button"
               className="primary"
@@ -7771,15 +7844,7 @@ function ReportsTab({
             >
               Simpan jadwal laporan
             </button>
-            <button
-              type="button"
-              disabled={!canSaveWeekSnapshot}
-              title={canSaveWeekSnapshot ? undefined : "Butuh izin schedule.save_week (PM)"}
-              onClick={() => void generateAnchorTargets()}
-            >
-              Generate target weekly report
-            </button>
-          </div>
+          </TabFormFooter>
         </div>
         {targetAnchors.length > 0 && (
           <div className="weekly-target-anchors">
@@ -8552,7 +8617,7 @@ function ClosingProjectTab({
           }}
         />
       </div>
-      <div className="btn-group">
+      <TabFormFooter hint="Checklist BAST; tutup proyek setelah semua kriteria terpenuhi.">
         <button type="button" onClick={addCriterion}>
           Tambah kriteria
         </button>
@@ -8561,7 +8626,7 @@ function ClosingProjectTab({
         </button>
         <button
           type="button"
-          className="primary"
+          className="primary btn-phase-advance"
           disabled={!canClose}
           onClick={closeProject}
           title={
@@ -8572,7 +8637,7 @@ function ClosingProjectTab({
         >
           Tutup proyek (Closed)
         </button>
-      </div>
+      </TabFormFooter>
       {!canClose && !isClosed && (
         <p className="text-muted" style={{ marginTop: "0.75rem" }}>
           {progress < 100 && "Progress belum 100%. "}

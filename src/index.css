@@ -897,7 +897,6 @@ ul.plain {
 
 textarea.sph-scope-textarea {
   width: 100%;
-  max-width: 48rem;
   padding: 0.55rem 0.65rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -905,6 +904,105 @@ textarea.sph-scope-textarea {
   font-size: 0.875rem;
   line-height: 1.45;
   resize: vertical;
+}
+
+.sph-non-scope {
+  margin: 1.25rem 0 1.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.sph-non-scope__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  padding: 0.85rem 1rem;
+  background: #f8fafc;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.sph-non-scope__title {
+  margin: 0 0 0.25rem;
+}
+
+.sph-non-scope__lead {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  max-width: 42rem;
+}
+
+.sph-non-scope__meta {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  padding: 0.25rem 0.55rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: 999px;
+}
+
+.sph-non-scope__body {
+  padding: 0.85rem 1rem 1rem;
+}
+
+.sph-non-scope__body textarea.sph-scope-textarea {
+  min-height: 10rem;
+  max-height: 22rem;
+  line-height: 1.55;
+  font-size: 0.8125rem;
+  background: #fafbfc;
+  border-color: var(--color-border-light);
+}
+
+.sph-non-scope__body textarea.sph-scope-textarea:focus {
+  outline: 2px solid rgba(53, 56, 205, 0.2);
+  border-color: var(--color-indigo);
+  background: var(--color-surface);
+}
+
+/* Footer simpan & lanjut fase — konsisten di semua tab */
+.tab-form-footer,
+.tab-phase-footer {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.tab-form-footer__actions,
+.tab-phase-footer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem 0.75rem;
+}
+
+.tab-form-footer__hint,
+.tab-phase-footer__hint {
+  margin: 0.55rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.tab-phase-footer--nested {
+  margin-top: 0.75rem;
+  padding-top: 0.85rem;
+  border-top: none;
+}
+
+.tab-phase-footer--nested .tab-phase-footer__actions {
+  justify-content: flex-start;
+}
+
+.btn-phase-advance {
+  min-width: 11rem;
 }
 
 /* SPH list panels */
@@ -3807,6 +3905,10 @@ table.po-table .po-col-actions {
   margin-top: 0.65rem;
 }
 
+.setup-clickup-actions--step {
+  justify-content: flex-end;
+}
+
 .setup-banner {
   margin: 0.65rem 0 0;
   padding: 0.55rem 0.75rem;
@@ -4179,6 +4281,11 @@ table.po-table .po-col-actions {
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.85rem;
+}
+
+.ui-toolbar--start {
+  justify-content: flex-start;
+  margin-bottom: 0.35rem;
 }
 
 .table-scroll {

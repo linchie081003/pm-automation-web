@@ -1,3 +1,5 @@
+import { formatDisplayDate } from "../lib/formatDate";
+
 export type RebaselineDiffPayload = {
   category?: "delay" | "scope_change";
   effective_from?: string;
@@ -19,7 +21,7 @@ export type RebaselineDiffPayload = {
 
 function fmtDate(v: unknown): string {
   if (!v || typeof v !== "string") return "—";
-  return v.slice(0, 10);
+  return formatDisplayDate(v);
 }
 
 export function RebaselineDiffView({ payload }: { payload: RebaselineDiffPayload | null | undefined }) {
