@@ -42,6 +42,7 @@ import {
   useChartZoom,
 } from "../components/ChartPanelTools";
 import { TabDocumentUpload } from "../components/TabDocumentUpload";
+import { TruncatedText } from "../components/TruncatedText";
 import {
   formatDisplayDate,
   formatDisplayDateFromMs,
@@ -1684,19 +1685,40 @@ type TaskRecapGroup = {
   tasks: TaskRecapRow[];
 };
 
+function taskRecapRowTooltip(t: TaskRecapRow): string {
+  const parts = [t.name];
+  if (t.item_type) parts.push(`Tipe: ${t.item_type}`);
+  if (t.status) {
+    parts.push(
+      t.status_raw && t.status_raw !== t.status
+        ? `Status: ${t.status} (ClickUp: ${t.status_raw})`
+        : `Status: ${t.status}`,
+    );
+  }
+  if (t.percent_complete != null) parts.push(`Progress: ${t.percent_complete}%`);
+  if (t.due_date) parts.push(`Due: ${formatDisplayDate(t.due_date)}`);
+  if (t.is_closed) parts.push("Closed: Ya");
+  return parts.join("\n");
+}
+
 function TaskRecapTables({
   groups,
   tasks,
+  compact = true,
 }: {
   groups?: TaskRecapGroup[];
   tasks: TaskRecapRow[];
+  /** Task & ClickUp — grid rapat; timeline memakai tabel detail terpisah. */
+  compact?: boolean;
 }) {
   const sections =
     groups && groups.length > 0
       ? groups
       : [{ list_id: "", list_name: "Semua task", tasks: tasks }];
   return (
-    <div className="task-recap-unified card task-recap-card">
+    <div
+      className={`task-recap-unified card task-recap-card${compact ? " task-recap-unified--compact" : ""}`}
+    >
       <div className="task-recap-grid task-recap-grid--head" role="row">
         <span>Nama</span>
         <span>Tipe</span>
@@ -1709,7 +1731,9 @@ function TaskRecapTables({
         <section key={g.list_id || g.list_name} className="task-recap-block">
           <div className="task-recap-grid task-recap-grid--phase">
             <div className="task-recap-phase-title">
-              <h3 className="task-recap-group__title">{g.list_name}</h3>
+              <h3 className="task-recap-group__title">
+                <TruncatedText text={g.list_name} title={`List: ${g.list_name}`} />
+              </h3>
               {g.phase_status && (
                 <span
                   className={`phase-status phase-status--${g.phase_status.replace(/\s+/g, "-").toLowerCase()}`}
@@ -1740,17 +1764,17 @@ function TaskRecapTables({
                 role="row"
               >
                 <div
-                  className="task-recap-name"
-                  style={{ paddingLeft: `${0.35 + (t.depth ?? 0) * 1.15}rem` }}
+                  className="task-recap-name cell-truncate-wrap"
+                  style={{ paddingLeft: `${0.35 + (t.depth ?? 0) * 1.05}rem` }}
                 >
                   {(t.depth ?? 0) > 0 && <span className="task-recap-tree" aria-hidden />}
-                  {t.url ? (
-                    <a href={t.url} target="_blank" rel="noreferrer" className="task-recap-link">
-                      {t.name}
-                    </a>
-                  ) : (
-                    t.name
-                  )}
+                  <TruncatedText
+                    text={t.name}
+                    title={taskRecapRowTooltip(t)}
+                    href={t.url ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                  />
                 </div>
                 <div>{itemTypePill(t.item_type)}</div>
                 <div>
@@ -1815,6 +1839,25 @@ function rowDisplayStart(row: MilestoneRow): string | null {
 
 function rowDisplayEnd(row: MilestoneRow): string | null {
   return row.target_date;
+}
+
+function milestoneDisplayTooltip(row: MilestoneRow): string {
+  const parts = [
+    row.name,
+    `Baseline: ${formatDisplayDate(row.start_date)} → ${formatDisplayDate(row.target_date)}`,
+  ];
+  if (row.module) parts.push(`Modul: ${row.module}`);
+  if (row.clickup_name && row.clickup_name !== row.name) parts.push(`ClickUp: ${row.clickup_name}`);
+  if (row.clickup_status) {
+    parts.push(
+      row.clickup_status_raw && row.clickup_status_raw !== row.clickup_status
+        ? `Status: ${row.clickup_status} (ClickUp: ${row.clickup_status_raw})`
+        : `Status: ${row.clickup_status}`,
+    );
+  }
+  if (row.clickup_progress_pct != null) parts.push(`Progress: ${row.clickup_progress_pct}%`);
+  if (row.clickup_due_date) parts.push(`Due ClickUp: ${formatDisplayDate(row.clickup_due_date)}`);
+  return parts.join("\n");
 }
 
 function startOfWeekMs(ms: number): number {
@@ -1886,23 +1929,6 @@ function TimelineGantt({
   const showToday = todayMs >= min && todayMs <= max;
   const todayLeft = ((todayMs - min) / span) * 100;
 
-  const tooltipFor = (row: MilestoneRow) => {
-    const parts = [
-      row.name,
-      `Baseline: ${formatDisplayDate(row.start_date)} → ${formatDisplayDate(row.target_date)}`,
-    ];
-    if (row.clickup_name) parts.push(`ClickUp: ${row.clickup_name}`);
-    if (row.clickup_status) {
-      parts.push(
-        row.clickup_status_raw && row.clickup_status_raw !== row.clickup_status
-          ? `Status: ${row.clickup_status} (ClickUp: ${row.clickup_status_raw})`
-          : `Status: ${row.clickup_status}`,
-      );
-    }
-    if (row.clickup_progress_pct != null) parts.push(`Progress: ${row.clickup_progress_pct}%`);
-    return parts.join("\n");
-  };
-
   return (
     <section className="timeline-gantt-pro" aria-label="Gantt timeline">
       <div className="timeline-gantt-pro__toolbar">
@@ -1926,7 +1952,7 @@ function TimelineGantt({
       <div className="timeline-gantt-pro__scroll">
         <div
           className="timeline-gantt-pro__grid"
-          style={{ gridTemplateColumns: "minmax(11rem, 26%) 1fr" }}
+          style={{ gridTemplateColumns: "minmax(12.5rem, 30%) 1fr" }}
         >
           <div className="timeline-gantt-pro__head-corner">Timeline</div>
           <div className="timeline-gantt-pro__head-track">
@@ -1974,9 +2000,8 @@ function TimelineGantt({
             return (
               <Fragment key={row.clickup_only ? `cu-${row.clickup_task_id}` : row.id}>
                 <div
-                  className={labelClass}
-                  style={{ paddingLeft: `${0.25 + depth}rem` }}
-                  title={row.name}
+                  className={`${labelClass} timeline-gantt-pro__label-wrap`}
+                  style={{ paddingLeft: `${0.35 + depth * 1.05}rem` }}
                 >
                   {kind === "phase" && onTogglePhase && (
                     <button
@@ -1999,13 +2024,13 @@ function TimelineGantt({
                     </button>
                   )}
                   {isChild ? <span className="timeline-gantt-pro__tree" aria-hidden /> : null}
-                  {row.clickup_url ? (
-                    <a href={row.clickup_url} target="_blank" rel="noreferrer">
-                      {row.name}
-                    </a>
-                  ) : (
-                    row.name
-                  )}
+                  <TruncatedText
+                    text={row.name}
+                    title={milestoneDisplayTooltip(row)}
+                    href={row.clickup_url ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                  />
                   {row.clickup_only && (
                     <span className="timeline-gantt-pro__cu-tag">ClickUp</span>
                   )}
@@ -2034,13 +2059,13 @@ function TimelineGantt({
                         progress >= 100 ? "done" : "open"
                       }`}
                       style={{ left: `calc(${left + width / 2}% - 6px)` }}
-                      title={tooltipFor(row)}
+                      title={milestoneDisplayTooltip(row)}
                     />
                   ) : hasBaseline ? (
                     <div
                       className={`timeline-gantt-pro__bar-wrap timeline-gantt-pro__bar-wrap--${kind}`}
                       style={{ left: `${left}%`, width: `${width}%` }}
-                      title={tooltipFor(row)}
+                      title={milestoneDisplayTooltip(row)}
                     >
                       <div className="timeline-gantt-pro__bar-bg" />
                       <div
@@ -2514,7 +2539,7 @@ function MilestonesTab({
           onToggleCu={toggleCu}
         />
         <div
-          className={`timeline-detail-unified${canWriteStructure ? " timeline-detail-unified--actions" : ""}`}
+          className={`timeline-detail-unified timeline-detail-unified--loose${canWriteStructure ? " timeline-detail-unified--actions" : ""}`}
         >
           <div className="timeline-detail-grid timeline-detail-grid--head" role="row">
             <span>Nama</span>
@@ -2552,8 +2577,8 @@ function MilestonesTab({
                 role="row"
               >
                 <div
-                  className="timeline-detail-name"
-                  style={{ paddingLeft: `${0.35 + depth * 1.1}rem` }}
+                  className="timeline-detail-name cell-truncate-wrap"
+                  style={{ paddingLeft: `${0.35 + depth * 1.2}rem` }}
                 >
                   {m.item_type === "phase" && (
                     <button
@@ -2589,16 +2614,23 @@ function MilestonesTab({
                         load();
                       }}
                     />
-                  ) : m.clickup_url ? (
-                    <a href={m.clickup_url} target="_blank" rel="noreferrer" className="task-recap-link">
-                      {m.name}
-                    </a>
                   ) : (
-                    m.name
+                    <TruncatedText
+                      text={m.name}
+                      title={milestoneDisplayTooltip(m)}
+                      href={m.clickup_url ?? undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                    />
                   )}
                   {m.clickup_only && <span className="timeline-gantt-pro__cu-tag">ClickUp</span>}
                 </div>
-                <div>{m.module ?? "—"}</div>
+                <div className="cell-truncate-wrap">
+                  <TruncatedText
+                    text={m.module?.trim() ? m.module : "—"}
+                    title={m.module?.trim() ? `Modul: ${m.module}` : undefined}
+                  />
+                </div>
                 <div className="timeline-detail-date">{formatDisplayDate(m.start_date)}</div>
                 <div className="timeline-detail-date">{formatDisplayDate(m.target_date)}</div>
                 <div>
@@ -5863,7 +5895,9 @@ function ClickUpTab({ projectId }: { projectId: number }) {
                     <tbody>
                       {milestoneMap.map((row) => (
                         <tr key={row.milestone_id}>
-                          <td>{row.name}</td>
+                          <td>
+                            <TruncatedText text={row.name} title={row.name} />
+                          </td>
                           <td>
                             <select
                               value={row.clickup_list_id ?? ""}
