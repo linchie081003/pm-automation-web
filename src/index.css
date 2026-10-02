@@ -2465,6 +2465,23 @@ table.po-table .po-col-actions {
   white-space: nowrap;
 }
 
+.timeline-detail-grid--anomaly {
+  background: color-mix(in srgb, #fef2f2 55%, var(--color-surface));
+}
+
+.timeline-detail-date--anomaly {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.timeline-schedule-anomaly-icon {
+  flex-shrink: 0;
+  color: #dc2626;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: help;
+}
+
 .weekly-schedule-card {
   margin-bottom: 0;
 }

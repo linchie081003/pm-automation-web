@@ -48,6 +48,7 @@ import {
   formatDisplayDateFromMs,
   formatDisplayDateRange,
   formatDisplayDateTime,
+  todayIsoDateInJakarta,
   toDateInputValue,
 } from "../lib/formatDate";
 import { newId } from "../lib/newId";
@@ -1823,6 +1824,7 @@ type MilestoneRow = {
   parent_clickup_task_id?: string | null;
   depth?: number;
   timeline_seq?: number;
+  schedule_anomalies?: string[];
 };
 
 const GANTT_DAY_MS = 86400000;
@@ -2161,9 +2163,7 @@ function MilestonesTab({
   const [reqId, setReqId] = useState<number | null>(null);
   const [rebaselineOptIn, setRebaselineOptIn] = useState(false);
   const [rebaseCategory, setRebaseCategory] = useState<"delay" | "scope_change">("delay");
-  const [rebaseEffectiveFrom, setRebaseEffectiveFrom] = useState(() =>
-    new Date().toISOString().slice(0, 10),
-  );
+  const [rebaseEffectiveFrom, setRebaseEffectiveFrom] = useState(() => todayIsoDateInJakarta());
   const [proposedPhases, setProposedPhases] = useState<ProposedPhaseRow[]>([]);
   const [rebasePreviewPayload, setRebasePreviewPayload] = useState<RebaselineDiffPayload | null>(
     null,
@@ -2203,6 +2203,11 @@ function MilestonesTab({
   useEffect(() => {
     load();
   }, [load, refreshKey]);
+
+  const scheduleAnomalyCount = useMemo(
+    () => items.filter((m) => (m.schedule_anomalies?.length ?? 0) > 0).length,
+    [items],
+  );
 
   const seedProposedFromPreview = useCallback(
     (seed: Array<Record<string, unknown>>) => {
@@ -2516,6 +2521,12 @@ function MilestonesTab({
       )}
       <TabAlert message={err} variant="error" />
       <TabAlert message={syncMsg} />
+      {scheduleAnomalyCount > 0 && (
+        <TabAlert
+          variant="error"
+          message={`Red flag jadwal: ${scheduleAnomalyCount} baris parent/anak tidak konsisten (mulai anak sebelum parent atau target anak melewati parent). Periksa kolom tanggal bertanda ⚠.`}
+        />
+      )}
       <div className="btn-group" style={{ marginBottom: "0.75rem" }}>
         <button type="button" className="primary" disabled={syncBusy} onClick={() => void syncFromClickUp()}>
           {syncBusy ? "Sync…" : "Sync progress dari ClickUp"}
@@ -2570,10 +2581,14 @@ function MilestonesTab({
             ]
               .filter(Boolean)
               .join(" ");
+            const scheduleAnomalyTip =
+              (m.schedule_anomalies?.length ?? 0) > 0
+                ? m.schedule_anomalies!.join("\n")
+                : undefined;
             return (
               <div
                 key={m.clickup_only ? `cu-${m.clickup_task_id}` : m.id}
-                className={rowClass}
+                className={`${rowClass}${scheduleAnomalyTip ? " timeline-detail-grid--anomaly" : ""}`}
                 role="row"
               >
                 <div
@@ -2623,6 +2638,15 @@ function MilestonesTab({
                       rel="noreferrer"
                     />
                   )}
+                  {scheduleAnomalyTip && (
+                    <span
+                      className="timeline-schedule-anomaly-icon"
+                      title={scheduleAnomalyTip}
+                      aria-label="Anomali jadwal parent/anak"
+                    >
+                      ⚠
+                    </span>
+                  )}
                   {m.clickup_only && <span className="timeline-gantt-pro__cu-tag">ClickUp</span>}
                 </div>
                 <div className="cell-truncate-wrap">
@@ -2631,8 +2655,18 @@ function MilestonesTab({
                     title={m.module?.trim() ? `Modul: ${m.module}` : undefined}
                   />
                 </div>
-                <div className="timeline-detail-date">{formatDisplayDate(m.start_date)}</div>
-                <div className="timeline-detail-date">{formatDisplayDate(m.target_date)}</div>
+                <div
+                  className={`timeline-detail-date${scheduleAnomalyTip ? " timeline-detail-date--anomaly" : ""}`}
+                  title={scheduleAnomalyTip}
+                >
+                  {formatDisplayDate(m.start_date)}
+                </div>
+                <div
+                  className={`timeline-detail-date${scheduleAnomalyTip ? " timeline-detail-date--anomaly" : ""}`}
+                  title={scheduleAnomalyTip}
+                >
+                  {formatDisplayDate(m.target_date)}
+                </div>
                 <div>
                   {m.display_duration_days != null
                     ? m.display_duration_days
@@ -7494,7 +7528,7 @@ function ReportsTab({
           });
           setAnchorOptions(full);
           if (started.length) {
-            const today = new Date().toISOString().slice(0, 10);
+            const today = todayIsoDateInJakarta();
             const past = started.filter((a) => reportDateFromOption(a) <= today);
             const pick = past.length
               ? reportDateFromOption(past[past.length - 1])

@@ -1,3 +1,5 @@
+import { APP_TIMEZONE } from "./lib/timezone";
+
 /** Finish-to-start predecessor recalc for rebaseline phase rows (calendar days). */
 
 export type RebaselinePhaseRowLike = {
@@ -25,12 +27,17 @@ function sameRow(a: RebaselinePhaseRowLike, b: RebaselinePhaseRowLike): boolean 
 
 function parseIso(s: string): Date | null {
   if (!s || s.length < 10) return null;
-  const d = new Date(`${s.slice(0, 10)}T12:00:00`);
+  const d = new Date(`${s.slice(0, 10)}T12:00:00+07:00`);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
 function fmtIso(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: APP_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
 }
 
 function addCalendarDays(d: Date, days: number): Date {

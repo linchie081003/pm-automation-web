@@ -1,3 +1,12 @@
+import {
+  APP_TIMEZONE,
+  formatJakartaDateTimeParts,
+  jakartaIsoDateFromMs,
+  todayIsoDateInJakarta,
+} from "./timezone";
+
+export { APP_TIMEZONE, todayIsoDateInJakarta };
+
 /** Normalisasi ke YYYY-MM-DD (input type=date & API). */
 export function toDateInputValue(raw: string | null | undefined): string {
   if (raw == null || raw === "") return "";
@@ -23,27 +32,17 @@ export function formatDisplayDate(raw: string | null | undefined): string {
   return `${d}/${m}/${y}`;
 }
 
-/** Dari timestamp (ms) ke DD/MM/YYYY — sama dengan formatDisplayDate. */
-/** ISO datetime (UTC) → DD/MM/YYYY HH:mm (lokal). */
+/** ISO datetime dari API → DD/MM/YYYY HH:mm (Asia/Jakarta). */
 export function formatDisplayDateTime(iso: string | null | undefined): string {
   if (iso == null || iso === "") return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return String(iso);
-  const date = formatDisplayDate(
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
-  );
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${date} ${hh}:${mm}`;
+  return formatJakartaDateTimeParts(d);
 }
 
 export function formatDisplayDateFromMs(ms: number): string {
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return "—";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return formatDisplayDate(`${y}-${m}-${day}`);
+  if (Number.isNaN(ms)) return "—";
+  return formatDisplayDate(jakartaIsoDateFromMs(ms));
 }
 
 /** Rentang tanggal tampilan konsisten (DD/MM/YYYY). */
