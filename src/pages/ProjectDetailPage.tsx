@@ -552,6 +552,8 @@ function ProjectHealthPanel({
   const showDeckLink =
     detail.current_phase === "pre_kickoff" || detail.current_phase === "kickoff";
   const canShowDelete = canDelete && !DELIVERY_PHASES.has(detail.current_phase);
+  const healthMetricsActive =
+    inDelivery || Boolean(detail.kickoff_timeline_confirmed_at);
 
   return (
     <div className="card project-health-card">
@@ -657,11 +659,20 @@ function ProjectHealthPanel({
         </div>
       </dl>
 
+      {healthMetricsActive && statusDate ? (
+        <p className="project-health-as-of-note" role="note">
+          Target, progress actual, deviasi, dan SPI dihitung s.d.{" "}
+          <strong>{formatDisplayDate(statusDate)}</strong>{" "}
+          <span className="project-health-as-of-note__tag">(as of today)</span>
+          — tanggal proyek berjalan hari ini.
+        </p>
+      ) : null}
+
       <div className="project-health-table-wrap">
         <table className="data-table health-metrics-table">
           <thead>
             <tr>
-              <th>Status date</th>
+              <th title="Tanggal penilaian (hari ini)">As of today</th>
               <th className="num">Target (%)</th>
               <th className="num">Progress actual (%)</th>
               <th className="num">Deviasi (%)</th>
@@ -701,8 +712,8 @@ function ProjectHealthPanel({
             {detail.health.health_source === "active_week_live" && (
               <>
                 {" "}
-                <strong>Minggu aktif:</strong> target = planned kumulatif per cut-off minggu ini;
-                actual = progress task live (s.d. hari ini).
+                <strong>Minggu laporan aktif:</strong> target mengikuti rencana kumulatif s.d. as
+                of today; actual = akumulasi progress task live s.d. tanggal yang sama.
               </>
             )}
             {detail.health.health_source === "weekly_snapshot" &&

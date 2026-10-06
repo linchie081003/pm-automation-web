@@ -3742,6 +3742,31 @@ table.po-table .po-col-actions {
   word-break: break-word;
 }
 
+.project-health-as-of-note {
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--color-text-muted, #64748b);
+  background: var(--color-border-light);
+  border-radius: var(--radius-md, 8px);
+  border-left: 3px solid var(--color-navy, #1e3a5f);
+}
+
+.project-health-as-of-note strong {
+  color: var(--color-navy);
+  font-weight: 600;
+}
+
+.project-health-as-of-note__tag {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  color: var(--color-navy);
+  opacity: 0.85;
+}
+
 .project-health-table-wrap {
   overflow-x: auto;
   margin: 0 -0.25rem;
