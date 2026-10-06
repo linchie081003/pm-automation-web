@@ -13,10 +13,12 @@ export type Me = {
 type AuthCtx = {
   user: Me | null;
   loading: boolean;
+  loggingOut: boolean;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   can: (perm: string) => boolean;
-  refresh: () => Promise<void>;
+  canAny: (perms: readonly string[]) => boolean;
+  refresh: () => Promise<Me | null>;
 };
 
 const Ctx = createContext<AuthCtx | null>(null);
@@ -24,11 +26,13 @@ const Ctx = createContext<AuthCtx | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loggingOut, setLoggingOut] = useState(false);
 
-  const refresh = async () => {
+  const refresh = async (): Promise<Me | null> => {
     try {
       const me = await api<Me>("/auth/me");
       setUser(me);
+      return me;
     } catch {
       try {
         await api<{ ok: boolean }>("/auth/refresh", {
@@ -37,8 +41,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
         const me = await api<Me>("/auth/me");
         setUser(me);
+        return me;
       } catch {
         setUser(null);
+        return null;
       }
     } finally {
       setLoading(false);
@@ -59,13 +65,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
     try {
       await api<{ ok: boolean }>("/auth/logout", { method: "POST" });
     } catch {
       /* cookie may already be gone */
+    } finally {
+      setToken(null);
+      setUser(null);
+      setLoggingOut(false);
+      window.location.href = "/login";
     }
-    setToken(null);
-    setUser(null);
   };
 
   const can = (perm: string) => {
@@ -74,8 +85,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return user.permissions.includes(perm);
   };
 
+  const canAny = (perms: readonly string[]) => {
+    if (!user) return false;
+    if (user.permissions.includes("*")) return true;
+    return perms.some((p) => user.permissions.includes(p));
+  };
+
   return (
-    <Ctx.Provider value={{ user, loading, login, logout, can, refresh }}>
+    <Ctx.Provider value={{ user, loading, loggingOut, login, logout, can, canAny, refresh }}>
       {children}
     </Ctx.Provider>
   );

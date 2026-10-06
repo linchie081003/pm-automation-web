@@ -389,6 +389,110 @@ button.danger-link:hover {
   flex-direction: column;
 }
 
+.sidebar-top-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.sidebar-top-row .sidebar-brand-block {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-menu-toggle {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.35);
+  color: #e2e8f0;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sidebar-menu-toggle:hover {
+  background: rgba(245, 130, 32, 0.25);
+  border-color: rgba(245, 130, 32, 0.5);
+}
+
+.layout--sidebar-hidden .sidebar {
+  width: 0;
+  padding: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  border: none;
+}
+
+.main-menu-open {
+  position: sticky;
+  top: 0.5rem;
+  z-index: 20;
+  margin-bottom: 0.75rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.main-menu-open:hover {
+  border-color: var(--color-orange);
+  color: var(--color-orange);
+}
+
+.password-input-wrap label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.password-input-field {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  max-width: 28rem;
+}
+
+.password-input-field input {
+  flex: 1;
+  min-width: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.password-input-toggle {
+  flex-shrink: 0;
+  padding: 0 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid var(--color-border);
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  background: #f8fafc;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.password-input-toggle:hover {
+  background: #f1f5f9;
+  color: var(--color-navy);
+}
+
 .sidebar-brand-block {
   margin-bottom: 1.25rem;
   padding-bottom: 1rem;
@@ -418,7 +522,7 @@ button.danger-link:hover {
   display: flex;
   align-items: center;
   gap: 0.65rem;
-  padding: 0.65rem 0.75rem;
+  padding: 0.55rem 0.55rem 0.55rem 0.65rem;
   margin-bottom: 1.25rem;
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.06);
@@ -461,9 +565,51 @@ button.danger-link:hover {
   margin: 0.15rem 0 0;
   font-size: 0.6875rem;
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
   color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-logout-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  min-width: 2.75rem;
+  padding: 0.35rem 0.4rem;
+  margin: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sidebar-logout-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}
+
+.sidebar-logout-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.sidebar-logout-btn__icon {
+  display: block;
+}
+
+.sidebar-logout-btn__label {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
 }
 
 .sidebar-nav {
@@ -498,21 +644,6 @@ button.danger-link:hover {
   color: #fff;
   background: var(--color-indigo);
   font-weight: 600;
-}
-
-.sidebar .btn-logout {
-  margin-top: auto;
-  width: 100%;
-  background: transparent;
-  border-color: rgba(148, 163, 184, 0.35);
-  color: #cbd5e1;
-  font-size: 0.875rem;
-}
-
-.sidebar .btn-logout:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(148, 163, 184, 0.5);
-  color: #fff;
 }
 
 .main {
@@ -4869,9 +5000,10 @@ fieldset.kickoff-fieldset:disabled .readonly-block {
     gap: 0.25rem;
   }
 
-  .sidebar .btn-logout {
-    margin-top: 0;
-    width: auto;
+  .sidebar-user-card {
+    order: -1;
+    flex: 1 1 100%;
+    margin-bottom: 0;
   }
 
   .main {

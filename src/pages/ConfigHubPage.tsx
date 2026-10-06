@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth";
+import { CONFIG_MENU_ANY_PERM, canAnyPerm } from "../lib/mainNav";
 
 type HubItem = {
   to: string;
@@ -9,13 +10,21 @@ type HubItem = {
 };
 
 export default function ConfigHubPage() {
-  const { can } = useAuth();
+  const { can, canAny } = useAuth();
+  if (!canAny(CONFIG_MENU_ANY_PERM)) {
+    return (
+      <>
+        <h1 className="page-title">Setting</h1>
+        <p className="error">Akses ditolak.</p>
+      </>
+    );
+  }
   const items: HubItem[] = [
     {
       to: "/config/users",
       title: "Pengguna",
       desc: "Akun, role, dan akses tim.",
-      show: can("users.read"),
+      show: canAnyPerm(can, ["users.read"]),
     },
     {
       to: "/config/roles",

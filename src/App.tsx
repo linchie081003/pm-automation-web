@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import { RequireAuth, RequirePerm, useAuth } from "./auth";
@@ -26,6 +27,9 @@ import ClickUpIntegrationPage from "./pages/ClickUpIntegrationPage";
 import GoogleDriveIntegrationPage from "./pages/GoogleDriveIntegrationPage";
 import ClickUpStatusMappingPage from "./pages/ClickUpStatusMappingPage";
 import { GlobalProgressBar } from "./components/GlobalProgressBar";
+import { RequirePermRoute } from "./components/RequirePermRoute";
+import { readSidebarOpen, writeSidebarOpen } from "./lib/sidebarPref";
+import { CONFIG_MENU_ANY_PERM, visibleMainNavItems } from "./lib/mainNav";
 
 
 
@@ -38,30 +42,46 @@ function userInitials(name: string | undefined): string {
 
 function Shell({ children }: { children: React.ReactNode }) {
 
-  const { user, logout, can } = useAuth();
+  const { user, logout, loggingOut, can, refresh } = useAuth();
 
   const loc = useLocation();
 
-  const configActive = loc.pathname.startsWith("/config");
+  const [sidebarOpen, setSidebarOpen] = useState(() => readSidebarOpen(true));
 
-  const showConfig =
+  useEffect(() => {
+    writeSidebarOpen(sidebarOpen);
+  }, [sidebarOpen]);
 
-    can("users.read") ||
-    can("roles.read") ||
-    can("health.config.write") ||
-    can("projects.write") ||
-    can("integrations.clickup.configure") ||
-    can("integrations.google_drive.configure");
+  useEffect(() => {
+    const onFocus = () => {
+      void refresh();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refresh]);
+
+  const navItems = visibleMainNavItems(can);
 
   return (
 
-    <div className="layout">
+    <div className={`layout${sidebarOpen ? "" : " layout--sidebar-hidden"}`}>
 
-      <aside className="sidebar">
+      <aside className="sidebar" aria-hidden={!sidebarOpen}>
 
-        <div className="sidebar-brand-block">
-          <p className="sidebar-brand-title">Project Delivery</p>
-          <p className="sidebar-brand-title sidebar-brand-title--accent">Control System</p>
+        <div className="sidebar-top-row">
+          <div className="sidebar-brand-block">
+            <p className="sidebar-brand-title">Project Delivery</p>
+            <p className="sidebar-brand-title sidebar-brand-title--accent">Control System</p>
+          </div>
+          <button
+            type="button"
+            className="sidebar-menu-toggle"
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Sembunyikan menu"
+            title="Sembunyikan menu"
+          >
+            ‹
+          </button>
         </div>
 
         <div className="sidebar-user-card">
@@ -70,66 +90,65 @@ function Shell({ children }: { children: React.ReactNode }) {
           </div>
           <div className="sidebar-user-meta">
             <p className="sidebar-user-name">{user?.name ?? "Pengguna"}</p>
-            <p className="sidebar-user-caption">Signed in</p>
+            <p className="sidebar-user-caption">{user?.email ?? "Signed in"}</p>
           </div>
+          <button
+            type="button"
+            className="sidebar-logout-btn"
+            onClick={() => void logout()}
+            disabled={loggingOut}
+            aria-busy={loggingOut}
+            title="Keluar dari akun"
+            aria-label={loggingOut ? "Sedang keluar" : "Keluar dari akun"}
+          >
+            <svg
+              className="sidebar-logout-btn__icon"
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            <span className="sidebar-logout-btn__label">
+              {loggingOut ? "…" : "Keluar"}
+            </span>
+          </button>
         </div>
 
         <nav className="sidebar-nav">
-
-          <Link className={loc.pathname === "/" ? "active" : ""} to="/">
-
-            Dashboard
-
-          </Link>
-
-          <Link className={loc.pathname.startsWith("/projects") ? "active" : ""} to="/projects">
-
-            Proyek
-
-          </Link>
-
-          {can("approvals.decide") && (
-
-            <Link className={loc.pathname === "/approvals" ? "active" : ""} to="/approvals">
-
-              Approval
-
-            </Link>
-
-          )}
-
-          {can("rebaseline.approve") && (
-
+          {navItems.map((item) => (
             <Link
-              className={loc.pathname === "/rebaseline-approvals" ? "active" : ""}
-              to="/rebaseline-approvals"
+              key={item.to}
+              className={item.isActive(loc.pathname) ? "active" : ""}
+              to={item.to}
             >
-              Rebaseline
+              {item.label}
             </Link>
-
-          )}
-
-          {showConfig && (
-
-            <Link className={configActive ? "active" : ""} to="/config">
-
-              Setting
-
-            </Link>
-
-          )}
-
+          ))}
         </nav>
-
-        <button type="button" className="btn-logout" onClick={logout}>
-
-          Logout
-
-        </button>
 
       </aside>
 
       <main className="main">
+        {!sidebarOpen && (
+          <button
+            type="button"
+            className="main-menu-open"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Tampilkan menu"
+            title="Tampilkan menu"
+          >
+            ☰ Menu
+          </button>
+        )}
         <GlobalProgressBar />
         {children}
       </main>
@@ -170,11 +189,32 @@ export default function App() {
 
                 <Route path="/projects/:id" element={<ProjectDetailPage />} />
 
-                <Route path="/approvals" element={<ApprovalsPage />} />
+                <Route
+                  path="/approvals"
+                  element={
+                    <RequirePermRoute anyPerm={["approvals.decide"]}>
+                      <ApprovalsPage />
+                    </RequirePermRoute>
+                  }
+                />
 
-                <Route path="/rebaseline-approvals" element={<RebaselineApprovalsPage />} />
+                <Route
+                  path="/rebaseline-approvals"
+                  element={
+                    <RequirePermRoute anyPerm={["rebaseline.approve"]}>
+                      <RebaselineApprovalsPage />
+                    </RequirePermRoute>
+                  }
+                />
 
-                <Route path="/config" element={<ConfigHubPage />} />
+                <Route
+                  path="/config"
+                  element={
+                    <RequirePermRoute anyPerm={[...CONFIG_MENU_ANY_PERM]}>
+                      <ConfigHubPage />
+                    </RequirePermRoute>
+                  }
+                />
                 <Route path="/setting" element={<Navigate to="/config" replace />} />
 
                 <Route path="/config/users" element={<UsersPage />} />
