@@ -59,6 +59,16 @@ import {
 import { formatProjectPhase } from "../lib/projectPhase";
 import { SPI_HEALTH_LABEL, SPI_HEALTH_TITLE, SPI_PERIOD_LABEL, SPI_PERIOD_TITLE } from "../lib/spiLabels";
 import TimelineEditorSandbox from "./project-detail/timeline/TimelineEditorSandbox";
+import {
+  draftTimelineRecalcPayload,
+  normalizeDraftPredecessors,
+  syncLegacyPredecessorFields,
+} from "../components/timeline/draftTimelinePayload";
+import {
+  TimelinePredecessorsDetails,
+  type PredOption,
+} from "../components/timeline/TimelinePredecessorsDetails";
+import type { TimelineEditorPredecessor } from "../components/timeline/types";
 import { formatClickUpSyncMessage, syncClickUpProgress } from "../clickupSync";
 
 type ProjectDetail = {
@@ -120,7 +130,7 @@ const PROJECT_TAB_IDS = new Set([
   "bast",
 ]);
 
-const PROJECT_TABS = [
+const PROJECT_TABS_BASE = [
   { id: "sph", label: "SPH" },
   { id: "po", label: "PO" },
   { id: "pre_kickoff", label: "Kick Off" },
@@ -136,6 +146,11 @@ const PROJECT_TABS = [
   { id: "audit", label: "Audit trail" },
   { id: "bast", label: "Closing" },
 ] as const;
+
+const PROJECT_TABS =
+  import.meta.env.VITE_HIDE_TIMELINE_BETA_TAB === "true"
+    ? PROJECT_TABS_BASE.filter((t) => t.id !== "timeline_editor_beta")
+    : PROJECT_TABS_BASE;
 
 const PHASE_NEXT_LABEL: Record<string, string> = {
   kickoff: "Kick Off",
@@ -1846,6 +1861,12 @@ type MilestoneRow = {
   depth?: number;
   timeline_seq?: number;
   schedule_anomalies?: string[];
+  live_predecessors?: {
+    predecessor_ref: string;
+    link_type: string;
+    lag_days: number;
+    predecessor_name?: string | null;
+  }[];
 };
 
 const GANTT_DAY_MS = 86400000;
@@ -1869,6 +1890,18 @@ function milestoneDisplayTooltip(row: MilestoneRow): string {
     row.name,
     `Baseline: ${formatDisplayDate(row.start_date)} → ${formatDisplayDate(row.target_date)}`,
   ];
+  if (row.live_predecessors?.length) {
+    parts.push(
+      `Predecessor: ${row.live_predecessors
+        .map(
+          (p) =>
+            `${p.predecessor_name ?? p.predecessor_ref} (${p.link_type}${
+              p.lag_days ? ` +${p.lag_days}HK` : ""
+            })`,
+        )
+        .join(", ")}`,
+    );
+  }
   if (row.module) parts.push(`Modul: ${row.module}`);
   if (row.clickup_name && row.clickup_name !== row.name) parts.push(`ClickUp: ${row.clickup_name}`);
   if (row.clickup_status) {
@@ -3394,6 +3427,7 @@ type DraftTimelineRow = {
   predecessor_ref?: string | null;
   predecessor_link_type?: string | null;
   schedule_driver?: "duration" | "start" | "end" | null;
+  predecessors?: TimelineEditorPredecessor[];
 };
 
 type ScheduleDriver = "duration" | "start" | "end";
@@ -3416,6 +3450,20 @@ function draftPredecessorOptions(
         (p.row_key || p.id),
     )
     .map(({ p, ref }) => ({ ref, label: p.name }));
+}
+
+function draftPredOptionsForRow(rows: DraftTimelineRow[], index: number): PredOption[] {
+  return draftPredecessorOptions(rows, index).map((o) => {
+    const pi = rows.findIndex(
+      (r, i) => draftTimelineRowRef(r, i) === o.ref,
+    );
+    const p = pi >= 0 ? rows[pi] : null;
+    return {
+      ref: o.ref,
+      label: o.label,
+      item_type: p?.item_type ?? "task",
+    };
+  });
 }
 
 function lastRootPhaseRowRef(rows: DraftTimelineRow[]): string | null {
@@ -3496,28 +3544,11 @@ function draftRowsWithParentRefs(rows: DraftTimelineRow[]): DraftTimelineRow[] {
   }));
 }
 
-function draftTimelineRecalcPayload(rows: DraftTimelineRow[], startDate: string | null) {
-  return {
-    start_date: startDate || null,
-    rows: draftRowsWithParentRefs(rows).map((r, idx) => ({
-      id: r.id,
-      row_key: r.row_key || String(r.id || idx),
-      name: r.name,
-      duration_days: r.item_type === "milestone" ? 0 : r.duration_days,
-      weight_pct: r.item_type === "milestone" ? 0 : r.weight_pct,
-      item_type: r.item_type,
-      parent_ref: r.parent_ref || null,
-      parent_id: r.parent_id ?? null,
-      sort_order: idx,
-      start_date: r.start_date || null,
-      target_date: r.target_date || null,
-      predecessor_ref: r.predecessor_ref?.trim() || null,
-      predecessor_link_type: r.predecessor_ref?.trim()
-        ? normalizePredecessorLinkType(r.predecessor_link_type)
-        : null,
-      schedule_driver: r.schedule_driver ?? null,
-    })),
-  };
+function enrichDraftRowsFromServer(rows: DraftTimelineRow[]): DraftTimelineRow[] {
+  return rows.map((r) => {
+    const preds = normalizeDraftPredecessors(r);
+    return syncLegacyPredecessorFields({ ...r, predecessors: preds }, preds);
+  });
 }
 
 function patchDraftRowSchedule(
@@ -3577,7 +3608,11 @@ function DraftTimelineTable({
           },
         )
           .then((res) => {
-            setDraftTimeline(mergeDraftTimelineNotes(rows, draftRowsWithParentRefs(res.draft_timeline)));
+            setDraftTimeline(
+              enrichDraftRowsFromServer(
+                mergeDraftTimelineNotes(rows, draftRowsWithParentRefs(res.draft_timeline)),
+              ),
+            );
             onProjectTimelineChange?.(res.project_timeline ?? null);
           })
           .catch((e) => {
@@ -3695,8 +3730,6 @@ function DraftTimelineTable({
             <col className="timeline-col-date" />
             <col className="timeline-col-date" />
             <col className="timeline-col-parent" />
-            <col className="timeline-col-pred" />
-            <col className="timeline-col-pred-type" />
             <col className="timeline-col-type" />
             <col className="timeline-col-weight" />
             {canEdit && <col className="timeline-col-action" />}
@@ -3710,8 +3743,6 @@ function DraftTimelineTable({
               <th className="timeline-col-date">Mulai</th>
               <th className="timeline-col-date">Selesai</th>
               <th className="timeline-col-parent">Parent</th>
-              <th className="timeline-col-pred">Predecessor</th>
-              <th className="timeline-col-pred-type">Relasi</th>
               <th className="timeline-col-type">Tipe</th>
               <th className="timeline-col-weight">Bobot %</th>
               {canEdit && <th className="timeline-col-action">Aksi</th>}
@@ -3719,8 +3750,12 @@ function DraftTimelineTable({
             </tr>
           </thead>
           <tbody>
-            {draftTimeline.map((row, index) => (
-              <tr key={row.id ?? row.row_key ?? index}>
+            {draftTimeline.map((row, index) => {
+              const predColSpan = (canEdit ? 10 : 8) as number;
+              const preds = normalizeDraftPredecessors(row);
+              return (
+              <Fragment key={row.id ?? row.row_key ?? index}>
+              <tr>
                 {canEdit && (
                   <td className="timeline-col-order">
                     <div className="timeline-order-btns">
@@ -3890,89 +3925,6 @@ function DraftTimelineTable({
                     (row.parent_ref ?? "—")
                   )}
                 </td>
-                <td className="timeline-col-pred">
-                  {canEdit && row.item_type !== "milestone" ? (
-                    <select
-                      className="timeline-pred-select"
-                      value={row.predecessor_ref ?? ""}
-                      title="Predecessor — tanggal mengikuti relasi FS/SS/FF/SF"
-                      onChange={(e) => {
-                        const val = e.target.value || null;
-                        const next = patchDraftRowSchedule(
-                          draftTimeline,
-                          index,
-                          {
-                            predecessor_ref: val,
-                            predecessor_link_type: val
-                              ? normalizePredecessorLinkType(row.predecessor_link_type)
-                              : null,
-                            target_date: null,
-                          },
-                          "duration",
-                        );
-                        setDraftTimeline(next);
-                        scheduleServerRecalc(next);
-                      }}
-                    >
-                      <option value="">— (rantai urutan) —</option>
-                      {draftPredecessorOptions(draftTimeline, index).map((o) => (
-                        <option key={o.ref} value={o.ref}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className="cell-muted">
-                      {row.predecessor_ref
-                        ? draftTimeline.find(
-                            (p) =>
-                              (p.row_key && p.row_key === row.predecessor_ref) ||
-                              String(p.id) === row.predecessor_ref,
-                          )?.name ?? row.predecessor_ref
-                        : "—"}
-                    </span>
-                  )}
-                </td>
-                <td className="timeline-col-pred-type">
-                  {canEdit && row.item_type !== "milestone" ? (
-                    <select
-                      className="timeline-pred-link-select"
-                      value={normalizePredecessorLinkType(row.predecessor_link_type)}
-                      disabled={!row.predecessor_ref}
-                      title={
-                        PREDECESSOR_LINK_OPTIONS.find(
-                          (o) =>
-                            o.value === normalizePredecessorLinkType(row.predecessor_link_type),
-                        )?.hint
-                      }
-                      onChange={(e) => {
-                        const next = patchDraftRowSchedule(
-                          draftTimeline,
-                          index,
-                          {
-                            predecessor_link_type: e.target.value,
-                            target_date: null,
-                          },
-                          "duration",
-                        );
-                        setDraftTimeline(next);
-                        scheduleServerRecalc(next);
-                      }}
-                    >
-                      {PREDECESSOR_LINK_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.value}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className="cell-muted">
-                      {row.predecessor_ref
-                        ? normalizePredecessorLinkType(row.predecessor_link_type)
-                        : "—"}
-                    </span>
-                  )}
-                </td>
                 <td className="timeline-col-type">
                   {canEdit ? (
                     <select
@@ -4045,7 +3997,29 @@ function DraftTimelineTable({
                   />
                 </td>
               </tr>
-            ))}
+              {row.item_type !== "milestone" ? (
+                <tr className="timeline-draft-pred-row">
+                  <td colSpan={predColSpan} className="te-table__pred-cell">
+                    <TimelinePredecessorsDetails
+                      predecessors={preds}
+                      options={draftPredOptionsForRow(draftTimeline, index)}
+                      readOnly={!canEdit}
+                      onChange={(nextPreds) => {
+                        const next = [...draftTimeline];
+                        next[index] = syncLegacyPredecessorFields(
+                          { ...next[index], predecessors: nextPreds },
+                          nextPreds,
+                        );
+                        setDraftTimeline(next);
+                        scheduleServerRecalc(next);
+                      }}
+                    />
+                  </td>
+                </tr>
+              ) : null}
+              </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -4058,20 +4032,29 @@ function DraftTimelineTable({
               onClick={() => {
                 const parentRef = defaultParentForNewRow(draftTimeline);
                 const isRootPhase = !parentRef;
+                const legacyPred = isRootPhase ? lastRootPhaseRowRef(draftTimeline) : null;
                 const next = normalizeDraftSortOrder([
                   ...draftTimeline,
-                  {
-                    name: "Baru",
-                    duration_days: 1,
-                    weight_pct: 0,
-                    item_type: parentRef ? "task" : "phase",
-                    parent_ref: parentRef,
-                    predecessor_ref: isRootPhase ? lastRootPhaseRowRef(draftTimeline) : null,
-                    predecessor_link_type: isRootPhase ? "FS" : null,
-                    sort_order: draftTimeline.length,
-                    row_key: `row_${newId().slice(0, 8)}`,
-                    notes: "",
-                  },
+                  syncLegacyPredecessorFields(
+                    {
+                      name: "Baru",
+                      duration_days: 1,
+                      weight_pct: 0,
+                      item_type: parentRef ? "task" : "phase",
+                      parent_ref: parentRef,
+                      predecessor_ref: legacyPred,
+                      predecessor_link_type: legacyPred ? "FS" : null,
+                      predecessors: legacyPred
+                        ? [{ predecessor_ref: legacyPred, link_type: "FS", lag_days: 0 }]
+                        : [],
+                      sort_order: draftTimeline.length,
+                      row_key: `row_${newId().slice(0, 8)}`,
+                      notes: "",
+                    },
+                    legacyPred
+                      ? [{ predecessor_ref: legacyPred, link_type: "FS", lag_days: 0 }]
+                      : [],
+                  ),
                 ]);
                 setDraftTimeline(next);
                 setRecalcError("");
@@ -4189,7 +4172,7 @@ function SphTab({
         item_type: r.item_type ?? "phase",
         sort_order: r.sort_order ?? idx,
       }));
-      setDraftTimeline(draftRowsWithParentRefs(rawDraft));
+      setDraftTimeline(enrichDraftRowsFromServer(draftRowsWithParentRefs(rawDraft)));
       setProjectTimeline(s.project_timeline ?? null);
       setTimelineTemplateId(
         s.timeline_template_id != null ? String(s.timeline_template_id) : "",
@@ -4281,7 +4264,10 @@ function SphTab({
       return;
     }
     try {
-      const rowsPayload = draftRowsWithParentRefs(draftTimeline);
+      const recalcPayload = draftTimelineRecalcPayload(
+        draftTimeline,
+        form.estimated_start_date || null,
+      );
       const res = await api<{
         draft_timeline: DraftTimelineRow[];
         project_timeline?: ProjectTimelineSummary;
@@ -4295,33 +4281,20 @@ function SphTab({
       }>(`/projects/${projectId}/sph/draft-timeline`, {
         method: "PUT",
         body: JSON.stringify({
-          start_date: form.estimated_start_date || null,
-          rows: rowsPayload.map((r, idx) => ({
-            id: r.id,
-            row_key: r.row_key || String(r.id || idx),
-            name: r.name,
-            duration_days: r.item_type === "milestone" ? 0 : r.duration_days,
-            weight_pct: r.item_type === "milestone" ? 0 : r.weight_pct,
-            item_type: r.item_type,
-            parent_ref: r.parent_ref || null,
-            parent_id: r.parent_id ?? null,
-            start_date: r.start_date || null,
-            target_date: r.target_date || null,
-            predecessor_ref: r.predecessor_ref || null,
-            predecessor_link_type: r.predecessor_ref
-              ? normalizePredecessorLinkType(r.predecessor_link_type)
-              : null,
-            schedule_driver: r.schedule_driver ?? null,
-            sort_order: idx,
-            notes: (r.notes ?? "").trim() || null,
+          start_date: recalcPayload.start_date,
+          rows: recalcPayload.rows.map((r, idx) => ({
+            ...r,
+            notes: (draftTimeline[idx]?.notes ?? "").trim() || null,
           })),
         }),
       });
       const mappedDraft = normalizeDraftSortOrder(
-        [...mergeDraftTimelineNotes(
-          draftTimeline,
-          draftRowsWithParentRefs(res.draft_timeline),
-        )].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+        enrichDraftRowsFromServer(
+          [...mergeDraftTimelineNotes(
+            draftTimeline,
+            draftRowsWithParentRefs(res.draft_timeline),
+          )].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+        ),
       );
       setDraftTimeline(mappedDraft);
       setProjectTimeline(res.project_timeline ?? null);
@@ -5150,23 +5123,26 @@ function PreKickoffTab({
           : [],
       });
       setDraftTimeline(
-        draftRowsWithParentRefs(
-          (p.draft_timeline ?? []).map((r, idx) => ({
-            id: r.id,
-            row_key: r.row_key,
-            name: r.name,
-            duration_days: r.duration_days ?? 1,
-            weight_pct: r.weight_pct ?? 0,
-            start_date: r.start_date,
-            target_date: r.target_date,
-            item_type: r.item_type ?? "phase",
-            parent_id: r.parent_id,
-            parent_ref: r.parent_ref,
-            sort_order: r.sort_order ?? idx,
-            notes: r.notes ?? "",
-            predecessor_ref: r.predecessor_ref ?? null,
-            predecessor_link_type: r.predecessor_link_type ?? null,
-          })),
+        enrichDraftRowsFromServer(
+          draftRowsWithParentRefs(
+            (p.draft_timeline ?? []).map((r, idx) => ({
+              id: r.id,
+              row_key: r.row_key,
+              name: r.name,
+              duration_days: r.duration_days ?? 1,
+              weight_pct: r.weight_pct ?? 0,
+              start_date: r.start_date,
+              target_date: r.target_date,
+              item_type: r.item_type ?? "phase",
+              parent_id: r.parent_id,
+              parent_ref: r.parent_ref,
+              sort_order: r.sort_order ?? idx,
+              notes: r.notes ?? "",
+              predecessor_ref: r.predecessor_ref ?? null,
+              predecessor_link_type: r.predecessor_link_type ?? null,
+              predecessors: r.predecessors,
+            })),
+          ),
         ),
       );
       setEstimatedStart(
@@ -5214,42 +5190,28 @@ function PreKickoffTab({
       return;
     }
     try {
-      const rowsPayload = draftRowsWithParentRefs(draftTimeline);
+      const recalcPayload = draftTimelineRecalcPayload(draftTimeline, estimatedStart || null);
       const res = await api<{
         draft_timeline: DraftTimelineRow[];
         project_timeline?: ProjectTimelineSummary;
       }>(`/projects/${projectId}/sph/draft-timeline`, {
-          method: "PUT",
-          body: JSON.stringify({
-            start_date: estimatedStart || null,
-            rows: rowsPayload.map((r, idx) => ({
-              id: r.id,
-              row_key: r.row_key || String(r.id || idx),
-              name: r.name,
-              duration_days: r.item_type === "milestone" ? 0 : r.duration_days,
-              weight_pct: r.item_type === "milestone" ? 0 : r.weight_pct,
-              item_type: r.item_type,
-              parent_ref: r.parent_ref || null,
-              parent_id: r.parent_id ?? null,
-              start_date: r.start_date || null,
-              target_date: r.target_date || null,
-              predecessor_ref: r.predecessor_ref || null,
-              predecessor_link_type: r.predecessor_ref
-                ? normalizePredecessorLinkType(r.predecessor_link_type)
-                : null,
-              schedule_driver: r.schedule_driver ?? null,
-              sort_order: idx,
-              notes: (r.notes ?? "").trim() || null,
-            })),
-          }),
-        },
-      );
+        method: "PUT",
+        body: JSON.stringify({
+          start_date: recalcPayload.start_date,
+          rows: recalcPayload.rows.map((r, idx) => ({
+            ...r,
+            notes: (draftTimeline[idx]?.notes ?? "").trim() || null,
+          })),
+        }),
+      });
       setDraftTimeline(
         normalizeDraftSortOrder(
-          [...mergeDraftTimelineNotes(
-            draftTimeline,
-            draftRowsWithParentRefs(res.draft_timeline),
-          )].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+          enrichDraftRowsFromServer(
+            [...mergeDraftTimelineNotes(
+              draftTimeline,
+              draftRowsWithParentRefs(res.draft_timeline),
+            )].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+          ),
         ),
       );
       setProjectTimeline(res.project_timeline ?? null);

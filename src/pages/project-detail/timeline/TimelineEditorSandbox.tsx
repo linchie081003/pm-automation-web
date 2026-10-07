@@ -489,6 +489,26 @@ export default function TimelineEditorSandbox({ projectId }: { projectId: number
     setWorkspaceUpdatedAt(snap.workspace_updated_at ?? null);
   }, []);
 
+  const applyToSphDraft = async () => {
+    setSaveBusy(true);
+    setError("");
+    setSaveMsg("");
+    try {
+      const out = await api<{
+        draft_timeline: TimelineEditorRow[];
+        project_timeline?: ProjectTimelineSummary;
+      }>(`/projects/${projectId}/timeline-editor/apply-to-draft`, { method: "POST" });
+      setSaveMsg(
+        `Diterapkan ke draft SPH resmi (${(out.draft_timeline ?? []).length} baris). Tab SPH/Kick Off memakai data ini.`,
+      );
+      setProjectTimeline(out.project_timeline ?? null);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setSaveBusy(false);
+    }
+  };
+
   const saveToDraft = async () => {
     if (!startDate.trim()) {
       setError("Isi tanggal mulai proyek sebelum simpan.");
@@ -599,6 +619,18 @@ export default function TimelineEditorSandbox({ projectId }: { projectId: number
               onClick={() => void saveToDraft()}
             >
               {saveBusy ? "Menyimpan…" : "Simpan"}
+            </button>
+            <button
+              type="button"
+              disabled={saveBusy || storageSource === "draft_seed" || rows.length === 0}
+              title={
+                storageSource === "draft_seed"
+                  ? "Simpan ke workspace beta dulu sebelum terapkan ke draft SPH"
+                  : "Salin workspace beta ke draft timeline resmi (SPH/Kick Off)"
+              }
+              onClick={() => void applyToSphDraft()}
+            >
+              Terapkan ke draft SPH
             </button>
             <button type="button" onClick={() => void loadSnapshot()}>
               Muat ulang draft
