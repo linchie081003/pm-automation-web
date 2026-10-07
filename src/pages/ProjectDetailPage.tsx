@@ -58,6 +58,7 @@ import {
 } from "../lib/timelineWeightValidation";
 import { formatProjectPhase } from "../lib/projectPhase";
 import { SPI_HEALTH_LABEL, SPI_HEALTH_TITLE, SPI_PERIOD_LABEL, SPI_PERIOD_TITLE } from "../lib/spiLabels";
+import TimelineEditorSandbox from "./project-detail/timeline/TimelineEditorSandbox";
 import { formatClickUpSyncMessage, syncClickUpProgress } from "../clickupSync";
 
 type ProjectDetail = {
@@ -107,6 +108,7 @@ const PROJECT_TAB_IDS = new Set([
   "po",
   "pre_kickoff",
   "milestones",
+  "timeline_editor_beta",
   "change_requests",
   "clickup",
   "evaluation",
@@ -123,6 +125,7 @@ const PROJECT_TABS = [
   { id: "po", label: "PO" },
   { id: "pre_kickoff", label: "Kick Off" },
   { id: "milestones", label: "Timeline" },
+  { id: "timeline_editor_beta", label: "Timeline Editor (Beta)" },
   { id: "change_requests", label: "Change Request" },
   { id: "clickup", label: "ClickUp" },
   { id: "evaluation", label: "Task" },
@@ -421,6 +424,9 @@ export default function ProjectDetailPage() {
           currentPhase={detail.current_phase}
           onProjectRefresh={load}
         />
+      )}
+      {tab === "timeline_editor_beta" && (
+        <TimelineEditorSandbox projectId={projectId} />
       )}
       {tab === "change_requests" && detail && (
         <ChangeRequestsTab
