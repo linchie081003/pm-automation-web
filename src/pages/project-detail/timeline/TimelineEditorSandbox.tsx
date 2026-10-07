@@ -290,6 +290,7 @@ export default function TimelineEditorSandbox({ projectId }: { projectId: number
   const [sphDraftWritable, setSphDraftWritable] = useState<boolean | null>(null);
   const [error, setError] = useState("");
   const [collapsedRefs, setCollapsedRefs] = useState<Set<string>>(() => new Set());
+  const [workspaceUpdatedAt, setWorkspaceUpdatedAt] = useState<string | null>(null);
   const recalcTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recalcGeneration = useRef(0);
   const recalcAbort = useRef<AbortController | null>(null);
@@ -309,6 +310,7 @@ export default function TimelineEditorSandbox({ projectId }: { projectId: number
       setSphDraftWritable(
         typeof snap.sph_draft_writable === "boolean" ? snap.sph_draft_writable : null,
       );
+      setWorkspaceUpdatedAt(snap.workspace_updated_at ?? null);
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -478,6 +480,7 @@ export default function TimelineEditorSandbox({ projectId }: { projectId: number
     setSphDraftWritable(
       typeof snap.sph_draft_writable === "boolean" ? snap.sph_draft_writable : null,
     );
+    setWorkspaceUpdatedAt(snap.workspace_updated_at ?? null);
   }, []);
 
   const saveToDraft = async () => {
@@ -507,6 +510,7 @@ export default function TimelineEditorSandbox({ projectId }: { projectId: number
         body: JSON.stringify({
           start_date: startDate || null,
           rows: rowsPayload,
+          workspace_updated_at: workspaceUpdatedAt,
         }),
       });
       applySnapshot(snap);

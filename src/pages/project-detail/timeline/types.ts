@@ -31,5 +31,6 @@ export type TimelineEditorSnapshot = {
   storage_source?: string;
   sph_draft_writable?: boolean;
   read_only_source: string;
+  workspace_updated_at?: string | null;
   note: string;
 };

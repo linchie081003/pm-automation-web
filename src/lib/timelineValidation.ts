@@ -47,13 +47,18 @@ export function validateTimelineItems(items: TimelineItemInput[]): string | null
     } else {
       const pt = normType(parent.item_type);
       if (pt === "phase" && t !== "task" && t !== "milestone") {
-        return `Anak phase «${parent.name}» hanya task atau milestone gate.`;
+        return (
+          `Di bawah phase «${parent.name}», «${it.name}» bertipe ${t} — ` +
+          "hanya task atau milestone gate. Ubah kolom Tipe atau parent."
+        );
       }
       if (pt === "task" && t !== "subtask") {
-        return `Anak task «${parent.name}» hanya subtask.`;
+        return (
+          `Di bawah task «${parent.name}», «${it.name}» bertipe ${t} — hanya subtask.`
+        );
       }
       if (pt !== "phase" && pt !== "task") {
-        return `Parent tidak valid untuk ${k}.`;
+        return `Parent tidak valid untuk «${it.name}».`;
       }
     }
     if (t === "milestone" && Math.abs(it.weight_pct) > TOL) {
