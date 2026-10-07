@@ -213,6 +213,12 @@ function mapSnapshotRows(raw: TimelineEditorRow[]): TimelineEditorRow[] {
       ...r,
       duration_days: r.duration_days ?? 1,
       weight_pct: r.weight_pct ?? 0,
+      schedule_driver:
+        r.schedule_driver ??
+        ((r.item_type || "").toLowerCase() === "milestone" &&
+        (r.target_date || r.start_date)
+          ? "milestone"
+          : null),
       predecessors: r.predecessors?.length
         ? r.predecessors.map((p) => ({
             predecessor_ref: p.predecessor_ref,
