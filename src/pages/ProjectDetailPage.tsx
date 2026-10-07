@@ -4317,9 +4317,11 @@ function SphTab({
           })),
         }),
       });
-      const mappedDraft = mergeDraftTimelineNotes(
-        draftTimeline,
-        draftRowsWithParentRefs(res.draft_timeline),
+      const mappedDraft = normalizeDraftSortOrder(
+        [...mergeDraftTimelineNotes(
+          draftTimeline,
+          draftRowsWithParentRefs(res.draft_timeline),
+        )].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
       );
       setDraftTimeline(mappedDraft);
       setProjectTimeline(res.project_timeline ?? null);
@@ -5243,9 +5245,11 @@ function PreKickoffTab({
         },
       );
       setDraftTimeline(
-        mergeDraftTimelineNotes(
-          draftTimeline,
-          draftRowsWithParentRefs(res.draft_timeline),
+        normalizeDraftSortOrder(
+          [...mergeDraftTimelineNotes(
+            draftTimeline,
+            draftRowsWithParentRefs(res.draft_timeline),
+          )].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
         ),
       );
       setProjectTimeline(res.project_timeline ?? null);

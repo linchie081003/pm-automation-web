@@ -18,7 +18,7 @@ export type TimelineEditorRow = {
   target_date?: string | null;
   predecessor_ref?: string | null;
   predecessor_link_type?: string | null;
-  schedule_driver?: "duration" | "start" | "end" | null;
+  schedule_driver?: "duration" | "start" | "end" | "milestone" | null;
   predecessors: TimelineEditorPredecessor[];
 };
 
@@ -26,6 +26,10 @@ export type TimelineEditorSnapshot = {
   project_id: number;
   start_date: string | null;
   rows: TimelineEditorRow[];
+  draft_timeline_writable?: boolean;
+  save_block_reason?: string | null;
+  storage_source?: string;
+  sph_draft_writable?: boolean;
   read_only_source: string;
   note: string;
 };
