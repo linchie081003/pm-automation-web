@@ -15,6 +15,8 @@ type UserRow = {
 
 type Role = { id: number; code: string; name: string };
 
+const USERS_PAGE_SIZE = 20;
+
 export default function UsersPage() {
   const { can } = useAuth();
   const canWrite = can("users.write");
@@ -26,6 +28,7 @@ export default function UsersPage() {
   const [roleId, setRoleId] = useState<number | "">("");
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
   const [editing, setEditing] = useState<UserRow | null>(null);
   const [editName, setEditName] = useState("");
   const [editRoleIds, setEditRoleIds] = useState<number[]>([]);
@@ -58,6 +61,17 @@ export default function UsersPage() {
         u.roles.some((r) => r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q)),
     );
   }, [users, search]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [search]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredUsers.length / USERS_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageUsers = filteredUsers.slice(
+    safePage * USERS_PAGE_SIZE,
+    safePage * USERS_PAGE_SIZE + USERS_PAGE_SIZE,
+  );
 
   const onCreate = async (e: FormEvent) => {
     e.preventDefault();
@@ -325,7 +339,28 @@ export default function UsersPage() {
         </div>
         <p className="text-muted" style={{ marginTop: 0 }}>
           {filteredUsers.length} dari {users.length} user
+          {filteredUsers.length > USERS_PAGE_SIZE
+            ? ` · halaman ${safePage + 1}/${pageCount}`
+            : ""}
         </p>
+        {filteredUsers.length > USERS_PAGE_SIZE && (
+          <div className="btn-group" style={{ marginBottom: "0.75rem" }}>
+            <button
+              type="button"
+              disabled={safePage <= 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            >
+              Sebelumnya
+            </button>
+            <button
+              type="button"
+              disabled={safePage >= pageCount - 1}
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+            >
+              Berikutnya
+            </button>
+          </div>
+        )}
         <table>
           <thead>
             <tr>
@@ -338,7 +373,7 @@ export default function UsersPage() {
             </tr>
           </thead>
           <tbody>
-            {filteredUsers.map((u) => (
+            {pageUsers.map((u) => (
               <tr key={u.id}>
                 <td>{u.email}</td>
                 <td>{u.name}</td>

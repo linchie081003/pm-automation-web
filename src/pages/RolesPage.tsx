@@ -15,6 +15,7 @@ type Role = {
   description: string | null;
   is_system: boolean;
   permission_codes: string[];
+  assigned_user_count?: number;
 };
 
 type Permission = {
@@ -101,9 +102,16 @@ export default function RolesPage() {
 
   const onDeleteRole = async () => {
     if (!selectedRole || selectedRole.is_system) return;
+    const inUse = selectedRole.assigned_user_count ?? 0;
+    if (inUse > 0) {
+      setMsg(
+        `Role "${selectedRole.name}" masih dipakai ${inUse} user. Pindahkan role user dulu sebelum hapus.`,
+      );
+      return;
+    }
     if (
       !window.confirm(
-        `Hapus role "${selectedRole.name}" (${selectedRole.code})? Role yang masih dipakai user tidak bisa dihapus.`,
+        `Hapus role "${selectedRole.name}" (${selectedRole.code})?`,
       )
     ) {
       return;
@@ -205,9 +213,26 @@ export default function RolesPage() {
             ))}
           </select>
         </label>
+        {selectedRole && (
+          <p className="text-muted" style={{ marginTop: "0.75rem", marginBottom: 0 }}>
+            {(selectedRole.assigned_user_count ?? 0) > 0
+              ? `Dipakai ${selectedRole.assigned_user_count} user — hapus assignment dulu.`
+              : "Belum dipakai user."}
+          </p>
+        )}
         {canWrite && selectedRole && !selectedRole.is_system && (
           <p style={{ marginTop: "1rem" }}>
-            <button type="button" className="text-danger" onClick={() => void onDeleteRole()}>
+            <button
+              type="button"
+              className="text-danger"
+              disabled={(selectedRole.assigned_user_count ?? 0) > 0}
+              title={
+                (selectedRole.assigned_user_count ?? 0) > 0
+                  ? "Role masih dipakai user"
+                  : undefined
+              }
+              onClick={() => void onDeleteRole()}
+            >
               Hapus role ini
             </button>
           </p>

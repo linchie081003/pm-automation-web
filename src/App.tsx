@@ -84,46 +84,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
 
-        <div className="sidebar-user-card">
-          <div className="sidebar-user-avatar" aria-hidden>
-            {userInitials(user?.name)}
-          </div>
-          <div className="sidebar-user-meta">
-            <p className="sidebar-user-name">{user?.name ?? "Pengguna"}</p>
-            <p className="sidebar-user-caption">{user?.email ?? "Signed in"}</p>
-          </div>
-          <button
-            type="button"
-            className="sidebar-logout-btn"
-            onClick={() => void logout()}
-            disabled={loggingOut}
-            aria-busy={loggingOut}
-            title="Keluar dari akun"
-            aria-label={loggingOut ? "Sedang keluar" : "Keluar dari akun"}
-          >
-            <svg
-              className="sidebar-logout-btn__icon"
-              viewBox="0 0 24 24"
-              width="18"
-              height="18"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-            <span className="sidebar-logout-btn__label">
-              {loggingOut ? "…" : "Keluar"}
-            </span>
-          </button>
-        </div>
-
-        <nav className="sidebar-nav">
+        <nav className="sidebar-nav" aria-label="Menu utama">
           {navItems.map((item) => (
             <Link
               key={item.to}
@@ -134,6 +95,47 @@ function Shell({ children }: { children: React.ReactNode }) {
             </Link>
           ))}
         </nav>
+
+        <div className="sidebar-footer">
+          <div className="sidebar-user-card">
+            <div className="sidebar-user-avatar" aria-hidden>
+              {userInitials(user?.name)}
+            </div>
+            <div className="sidebar-user-meta">
+              <p className="sidebar-user-name">{user?.name ?? "Pengguna"}</p>
+              <p className="sidebar-user-caption">{user?.email ?? "Signed in"}</p>
+            </div>
+            <button
+              type="button"
+              className="sidebar-logout-btn"
+              onClick={() => void logout()}
+              disabled={loggingOut}
+              aria-busy={loggingOut}
+              title="Keluar dari akun (semua sesi)"
+              aria-label={loggingOut ? "Sedang keluar" : "Keluar dari akun"}
+            >
+              <svg
+                className="sidebar-logout-btn__icon"
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+              <span className="sidebar-logout-btn__label">
+                {loggingOut ? "…" : "Keluar"}
+              </span>
+            </button>
+          </div>
+        </div>
 
       </aside>
 

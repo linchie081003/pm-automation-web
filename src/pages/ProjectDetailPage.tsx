@@ -57,6 +57,7 @@ import {
   validateDraftTimelineWeight,
 } from "../lib/timelineWeightValidation";
 import { formatProjectPhase } from "../lib/projectPhase";
+import { SPI_HEALTH_LABEL, SPI_HEALTH_TITLE, SPI_PERIOD_LABEL, SPI_PERIOD_TITLE } from "../lib/spiLabels";
 import { formatClickUpSyncMessage, syncClickUpProgress } from "../clickupSync";
 
 type ProjectDetail = {
@@ -676,7 +677,9 @@ function ProjectHealthPanel({
               <th className="num">Target (%)</th>
               <th className="num">Progress actual (%)</th>
               <th className="num">Deviasi (%)</th>
-              <th className="num">SPI</th>
+              <th className="num" title={SPI_HEALTH_TITLE}>
+                {SPI_HEALTH_LABEL}
+              </th>
               <th className="rag-col">RAG</th>
             </tr>
           </thead>
@@ -702,8 +705,9 @@ function ProjectHealthPanel({
       <p className="text-muted health-metrics-hint">
         {!inDelivery && !detail.kickoff_timeline_confirmed_at ? (
           <>
-            Metrik (SPI/RAG) aktif setelah timeline Kick Off dikonfirmasi. SPI = Actual ÷ Target
-            (per status date / cut-off minggu laporan aktif).
+            Metrik (SPI/RAG) aktif setelah timeline Kick Off dikonfirmasi.{" "}
+            <span title={SPI_HEALTH_TITLE}>{SPI_HEALTH_LABEL}</span> = Actual ÷ Target s.d. status
+            date (hari ini) — berbeda dari SPI periode di Executive / weekly report.
           </>
         ) : (
           <>
@@ -2345,6 +2349,20 @@ function MilestonesTab({
     }
   };
 
+  const rebaseRecalcTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRebaseRecalcDates = (rows: ProposedPhaseRow[]) => {
+    if (rebaseRecalcTimer.current) clearTimeout(rebaseRecalcTimer.current);
+    rebaseRecalcTimer.current = setTimeout(() => {
+      void runRebaseRecalcDates(rows);
+    }, 450);
+  };
+
+  useEffect(() => {
+    if (!rebaselineEnabled || proposedPhases.length === 0) return;
+    scheduleRebaseRecalcDates(proposedPhases);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recalc when effective date changes
+  }, [rebaseEffectiveFrom]);
+
   const runRebaseValidate = async () => {
     setRebaseBusy(true);
     setRebaseMsg("");
@@ -2938,7 +2956,7 @@ function MilestonesTab({
                               : undefined,
                           };
                           setProposedPhases(next);
-                          void runRebaseRecalcDates(next);
+                          scheduleRebaseRecalcDates(next);
                         }}
                       >
                         <option value="">— (rantai urutan)</option>
@@ -2965,7 +2983,7 @@ function MilestonesTab({
                             predecessor_link_type: e.target.value,
                           };
                           setProposedPhases(next);
-                          void runRebaseRecalcDates(next);
+                          scheduleRebaseRecalcDates(next);
                         }}
                       >
                         {PREDECESSOR_LINK_OPTIONS.map((o) => (
@@ -2984,6 +3002,7 @@ function MilestonesTab({
                           const next = [...proposedPhases];
                           next[idx] = { ...row, start_date: e.target.value };
                           setProposedPhases(next);
+                          scheduleRebaseRecalcDates(next);
                         }}
                       />
                     </td>
@@ -2996,6 +3015,7 @@ function MilestonesTab({
                           const next = [...proposedPhases];
                           next[idx] = { ...row, target_date: e.target.value };
                           setProposedPhases(next);
+                          scheduleRebaseRecalcDates(next);
                         }}
                       />
                     </td>
@@ -3060,8 +3080,8 @@ function MilestonesTab({
               <button
                 type="button"
                 style={{ marginTop: "0.5rem" }}
-                onClick={() =>
-                  setProposedPhases([
+                onClick={() => {
+                  const next = [
                     ...proposedPhases,
                     {
                       name: "Fase baru",
@@ -3073,8 +3093,10 @@ function MilestonesTab({
                       can_delete: true,
                       can_edit_weight: true,
                     },
-                  ])
-                }
+                  ];
+                  setProposedPhases(next);
+                  scheduleRebaseRecalcDates(next);
+                }}
               >
                 Tambah fase
               </button>
@@ -3578,6 +3600,17 @@ function DraftTimelineTable({
     },
     [],
   );
+
+  const timelineStartRecalcReady = useRef(false);
+  useEffect(() => {
+    if (!timelineStartRecalcReady.current) {
+      timelineStartRecalcReady.current = true;
+      return;
+    }
+    if (!canEdit || !timelineStart?.trim() || draftTimeline.length === 0) return;
+    scheduleServerRecalc(draftTimeline);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recalc cascade when project start changes
+  }, [timelineStart]);
 
   const weightCheck = useMemo(
     () => validateDraftTimelineWeight(draftRowsWithParentRefs(draftTimeline)),
@@ -6397,7 +6430,9 @@ function ScurveChart({
           </span>
         </div>
         <div className="scurve-kpi-strip__item">
-          <span className="scurve-kpi-strip__label">SPI</span>
+          <span className="scurve-kpi-strip__label" title={SPI_PERIOD_TITLE}>
+            {SPI_PERIOD_LABEL}
+          </span>
           <span className="scurve-kpi-strip__value">{Number(kpiSpi).toFixed(4)}</span>
         </div>
       </div>
@@ -8050,7 +8085,9 @@ function ReportsTab({
                     <th>Status</th>
                     <th className="num">Planned</th>
                     <th className="num">Actual</th>
-                    <th className="num">SPI</th>
+                    <th className="num" title={SPI_PERIOD_TITLE}>
+                      {SPI_PERIOD_LABEL}
+                    </th>
                     <th>Laporan</th>
                     <th className="scurve-period-table__actions-col">Aksi</th>
                   </tr>
@@ -8353,7 +8390,9 @@ function ReportsTab({
                 </span>
               </div>
               <div className="weekly-preview-kpi">
-                <span className="weekly-preview-kpi__label">SPI</span>
+                <span className="weekly-preview-kpi__label" title={SPI_PERIOD_TITLE}>
+                  {SPI_PERIOD_LABEL}
+                </span>
                 <span
                   className={`weekly-preview-kpi__value weekly-preview-kpi__value--spi scurve-spi-pill scurve-spi-pill--${spiTone(Number(preview.spi ?? 0))}`}
                 >

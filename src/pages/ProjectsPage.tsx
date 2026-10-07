@@ -10,6 +10,7 @@ import { formatDisplayDate } from "../lib/formatDate";
 import { formatDeviationPct, deviationFromTargetActual } from "../lib/progressFormat";
 import { filterProjectsBySearch } from "../lib/projectListFilter";
 import { formatProjectPhase } from "../lib/projectPhase";
+import { SPI_PERIOD_LABEL, SPI_PERIOD_TITLE } from "../lib/spiLabels";
 
 type Project = {
   id: number;
@@ -327,8 +328,8 @@ export default function ProjectsPage() {
                   <th scope="col" className="num">
                     Deviasi
                   </th>
-                  <th scope="col" className="num">
-                    SPI
+                  <th scope="col" className="num" title={SPI_PERIOD_TITLE}>
+                    {SPI_PERIOD_LABEL}
                   </th>
                   <th scope="col" className="rag-col">
                     RAG

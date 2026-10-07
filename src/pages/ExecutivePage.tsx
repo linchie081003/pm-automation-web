@@ -6,6 +6,7 @@ import { formatDeviationPct, deviationFromTargetActual } from "../lib/progressFo
 import { filterProjectsBySearch } from "../lib/projectListFilter";
 import { formatProjectPhase } from "../lib/projectPhase";
 import { RequirePerm } from "../auth";
+import { SPI_PERIOD_LABEL, SPI_PERIOD_TITLE } from "../lib/spiLabels";
 
 type Row = {
   id: number;
@@ -91,7 +92,9 @@ export default function ExecutivePage() {
               <div className="kpi-value">{data.count}</div>
             </div>
             <div className="kpi-card">
-              <div className="kpi-label">Rata-rata SPI</div>
+              <div className="kpi-label" title={SPI_PERIOD_TITLE}>
+                Rata-rata {SPI_PERIOD_LABEL}
+              </div>
               <div className="kpi-value">
                 {data.avg_spi != null ? data.avg_spi : "—"}
               </div>
@@ -139,7 +142,7 @@ export default function ExecutivePage() {
                   <th>Target %</th>
                   <th>Actual %</th>
                   <th>Deviasi %</th>
-                  <th>SPI</th>
+                  <th title={SPI_PERIOD_TITLE}>{SPI_PERIOD_LABEL}</th>
                   <th>Nilai SPH</th>
                   <th>Est. MD</th>
                   <th>RAG</th>

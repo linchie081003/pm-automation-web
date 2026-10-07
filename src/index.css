@@ -380,13 +380,19 @@ button.danger-link:hover {
 }
 
 .sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
   width: var(--sidebar-width);
   flex-shrink: 0;
+  height: 100vh;
+  max-height: 100vh;
   background: var(--color-navy);
   color: #e2e8f0;
-  padding: 1.25rem 1rem;
+  padding: 1.25rem 1rem 1rem;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .sidebar-top-row {
@@ -518,12 +524,28 @@ button.danger-link:hover {
   margin-top: 0.15rem;
 }
 
+.sidebar-nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 0.25rem;
+  margin-bottom: 0.75rem;
+  padding-right: 0.15rem;
+}
+
+.sidebar-footer {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
 .sidebar-user-card {
   display: flex;
   align-items: center;
   gap: 0.65rem;
   padding: 0.55rem 0.55rem 0.55rem 0.65rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 0;
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(148, 163, 184, 0.22);
@@ -612,15 +634,10 @@ button.danger-link:hover {
   line-height: 1;
 }
 
-.sidebar-nav {
-  margin-top: 0.25rem;
-}
-
 .sidebar nav {
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
-  flex: 1;
 }
 
 .sidebar a {
@@ -4985,12 +5002,16 @@ fieldset.kickoff-fieldset:disabled .readonly-block {
   }
 
   .sidebar {
+    position: relative;
     width: 100%;
+    height: auto;
+    max-height: none;
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.75rem;
     padding: 0.85rem 1rem;
+    overflow: visible;
   }
 
   .sidebar nav {
