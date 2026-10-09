@@ -1,0 +1,41 @@
+export type ProjectDetail = {
+  id?: number;
+  code: string;
+  name: string;
+  methodology?: string;
+  document_repo_url?: string | null;
+  current_phase: string;
+  delivery_started_at?: string | null;
+  weekly_report_anchor_weekday?: number;
+  weekly_report_cutoff_offset_days?: number;
+  weekly_report_first_anchor_date?: string | null;
+  kickoff_timeline_confirmed_at?: string | null;
+  planned_start_date?: string | null;
+  planned_end_date?: string | null;
+  clickup_provision_status?: string;
+  status?: string;
+  sph_total_rupiah?: number | null;
+  planned_md?: number | null;
+  sph_no?: string | null;
+  project_manager?: string | null;
+  project_brief?: string | null;
+  health: {
+    spi: number | null;
+    rag_overall: string | null;
+    planned_progress_pct: number | null;
+    actual_progress_pct: number | null;
+    health_source?: string;
+    snapshot_week_start?: string;
+    snapshot_week_end?: string;
+    project_start_date?: string | null;
+    project_end_date?: string | null;
+    status_date?: string | null;
+    as_of?: string;
+    progress_deviation_pct?: number | null;
+    config?: {
+      spi_green_min?: number;
+      spi_yellow_min?: number;
+    };
+  };
+  bast_checklist: Record<string, unknown>;
+};
