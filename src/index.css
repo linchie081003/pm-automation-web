@@ -748,6 +748,40 @@ button.danger-link:hover {
   width: 6.75rem;
 }
 
+.te-table__live-meta-cell {
+  padding: 0.35rem 0.5rem 0.65rem;
+  background: var(--surface-muted, #f8fafc);
+  border-top: 1px dashed var(--border-subtle, #e2e8f0);
+}
+
+.te-live-meta-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  font-size: 0.875rem;
+}
+
+.te-live-meta-label {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted, #64748b);
+  margin-bottom: 0.15rem;
+}
+
+.te-live-meta-anomaly {
+  flex: 1 1 100%;
+  color: var(--danger, #b91c1c);
+  font-size: 0.8125rem;
+}
+
+.te-row-lock {
+  margin-right: 0.35rem;
+  opacity: 0.85;
+}
+
 .te-action-stack {
   display: flex;
   flex-direction: column;

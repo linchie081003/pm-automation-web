@@ -45,7 +45,6 @@ import { TabDocumentUpload } from "../components/TabDocumentUpload";
 import { TruncatedText } from "../components/TruncatedText";
 import {
   formatDisplayDate,
-  formatDisplayDateFromMs,
   formatDisplayDateRange,
   formatDisplayDateTime,
   todayIsoDateInJakarta,
@@ -59,6 +58,8 @@ import {
 import { formatProjectPhase } from "../lib/projectPhase";
 import { SPI_HEALTH_LABEL, SPI_HEALTH_TITLE, SPI_PERIOD_LABEL, SPI_PERIOD_TITLE } from "../lib/spiLabels";
 import TimelineEditorSandbox from "./project-detail/timeline/TimelineEditorSandbox";
+import { MilestonesLiveTimeline } from "./project-detail/timeline/MilestonesLiveTimeline";
+import type { MilestoneRow } from "./project-detail/timeline/milestoneTypes";
 import {
   draftTimelineRecalcPayload,
   normalizeDraftPredecessors,
@@ -1831,318 +1832,6 @@ function TaskRecapTables({
   );
 }
 
-type MilestoneRow = {
-  id: number;
-  name: string;
-  module?: string | null;
-  start_date: string | null;
-  target_date: string | null;
-  weight_pct: number;
-  status: string;
-  is_payment_milestone?: boolean;
-  parent_id?: number | null;
-  item_type?: string;
-  duration_days?: number | null;
-  sort_order?: number;
-  clickup_task_id?: string | null;
-  clickup_name?: string | null;
-  clickup_status?: string | null;
-  clickup_status_raw?: string | null;
-  clickup_url?: string | null;
-  clickup_due_date?: string | null;
-  clickup_progress_pct?: number | null;
-  display_start?: string | null;
-  display_end?: string | null;
-  display_duration_days?: number | null;
-  clickup_only?: boolean;
-  phase_id?: number | null;
-  expandable?: boolean;
-  parent_clickup_task_id?: string | null;
-  depth?: number;
-  timeline_seq?: number;
-  schedule_anomalies?: string[];
-  live_predecessors?: {
-    predecessor_ref: string;
-    link_type: string;
-    lag_days: number;
-    predecessor_name?: string | null;
-  }[];
-};
-
-const GANTT_DAY_MS = 86400000;
-
-function parseTimelineMs(raw: string | null | undefined): number | null {
-  if (!raw) return null;
-  const t = new Date(raw.slice(0, 10)).getTime();
-  return Number.isNaN(t) ? null : t;
-}
-
-function rowDisplayStart(row: MilestoneRow): string | null {
-  return row.start_date;
-}
-
-function rowDisplayEnd(row: MilestoneRow): string | null {
-  return row.target_date;
-}
-
-function milestoneDisplayTooltip(row: MilestoneRow): string {
-  const parts = [
-    row.name,
-    `Baseline: ${formatDisplayDate(row.start_date)} → ${formatDisplayDate(row.target_date)}`,
-  ];
-  if (row.live_predecessors?.length) {
-    parts.push(
-      `Predecessor: ${row.live_predecessors
-        .map(
-          (p) =>
-            `${p.predecessor_name ?? p.predecessor_ref} (${p.link_type}${
-              p.lag_days ? ` +${p.lag_days}HK` : ""
-            })`,
-        )
-        .join(", ")}`,
-    );
-  }
-  if (row.module) parts.push(`Modul: ${row.module}`);
-  if (row.clickup_name && row.clickup_name !== row.name) parts.push(`ClickUp: ${row.clickup_name}`);
-  if (row.clickup_status) {
-    parts.push(
-      row.clickup_status_raw && row.clickup_status_raw !== row.clickup_status
-        ? `Status: ${row.clickup_status} (ClickUp: ${row.clickup_status_raw})`
-        : `Status: ${row.clickup_status}`,
-    );
-  }
-  if (row.clickup_progress_pct != null) parts.push(`Progress: ${row.clickup_progress_pct}%`);
-  if (row.clickup_due_date) parts.push(`Due ClickUp: ${formatDisplayDate(row.clickup_due_date)}`);
-  return parts.join("\n");
-}
-
-function startOfWeekMs(ms: number): number {
-  const d = new Date(ms);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
-function TimelineGantt({
-  rows,
-  rangeRows,
-  collapsedPhases,
-  collapsedCu,
-  onTogglePhase,
-  onToggleCu,
-}: {
-  rows: MilestoneRow[];
-  rangeRows?: MilestoneRow[];
-  collapsedPhases?: Set<number>;
-  collapsedCu?: Set<string>;
-  onTogglePhase?: (phaseId: number) => void;
-  onToggleCu?: (clickupTaskId: string) => void;
-}) {
-  const sortedRows = useMemo(
-    () => [...rows].sort((a, b) => (a.timeline_seq ?? a.sort_order ?? a.id) - (b.timeline_seq ?? b.sort_order ?? b.id)),
-    [rows],
-  );
-
-  const range = useMemo(() => {
-    let min = Infinity;
-    let max = -Infinity;
-    const forRange = rangeRows ?? rows;
-    for (const row of forRange) {
-      const s = parseTimelineMs(rowDisplayStart(row));
-      const e = parseTimelineMs(rowDisplayEnd(row));
-      if (s == null && e == null) continue;
-      const a = s ?? e!;
-      const b = e ?? s!;
-      min = Math.min(min, a, b);
-      max = Math.max(max, a, b);
-    }
-    if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
-    return { min, max, span: Math.max(max - min, GANTT_DAY_MS) };
-  }, [rows, rangeRows]);
-
-  const weekTicks = useMemo(() => {
-    if (!range) return [];
-    const ticks: number[] = [];
-    let cur = startOfWeekMs(range.min);
-    while (cur <= range.max + GANTT_DAY_MS) {
-      ticks.push(cur);
-      cur += 7 * GANTT_DAY_MS;
-    }
-    return ticks;
-  }, [range]);
-
-  if (!range) {
-    return (
-      <p className="text-muted gantt-empty">Isi tanggal mulai/selesai untuk menampilkan Gantt.</p>
-    );
-  }
-
-  const { min, max, span } = range;
-  const fmt = (ms: number) => formatDisplayDateFromMs(ms);
-  const todayMs = new Date().setHours(0, 0, 0, 0);
-  const showToday = todayMs >= min && todayMs <= max;
-  const todayLeft = ((todayMs - min) / span) * 100;
-
-  return (
-    <section className="timeline-gantt-pro" aria-label="Gantt timeline">
-      <div className="timeline-gantt-pro__toolbar">
-        <span className="timeline-gantt-pro__range">
-          {fmt(min)} — {fmt(max)}
-        </span>
-        <div className="timeline-gantt-pro__legend">
-          <span>
-            <i className="timeline-gantt-pro__swatch timeline-gantt-pro__swatch--phase" /> Phase
-          </span>
-          <span>
-            <i className="timeline-gantt-pro__swatch timeline-gantt-pro__swatch--task" /> Task
-          </span>
-          <span>
-            <i className="timeline-gantt-pro__swatch timeline-gantt-pro__swatch--milestone" />{" "}
-            Milestone
-          </span>
-          <span className="text-muted">Fill = progress ClickUp</span>
-        </div>
-      </div>
-      <div className="timeline-gantt-pro__scroll">
-        <div
-          className="timeline-gantt-pro__grid"
-          style={{ gridTemplateColumns: "minmax(12.5rem, 30%) 1fr" }}
-        >
-          <div className="timeline-gantt-pro__head-corner">Timeline</div>
-          <div className="timeline-gantt-pro__head-track">
-            {weekTicks.map((t) => (
-              <div
-                key={t}
-                className="timeline-gantt-pro__tick"
-                style={{ left: `${((t - min) / span) * 100}%` }}
-              >
-                {fmt(t)}
-              </div>
-            ))}
-            {showToday && (
-              <div
-                className="timeline-gantt-pro__today-line"
-                style={{ left: `${todayLeft}%` }}
-                title="Hari ini"
-              />
-            )}
-          </div>
-          {sortedRows.map((row) => {
-            const startMs = parseTimelineMs(rowDisplayStart(row));
-            const endMs = parseTimelineMs(rowDisplayEnd(row));
-            const hasBaseline = startMs != null || endMs != null;
-            const s = startMs ?? endMs ?? min;
-            const e = endMs ?? startMs ?? s;
-            const left = hasBaseline ? ((Math.min(s, e) - min) / span) * 100 : 0;
-            const width = hasBaseline
-              ? Math.max(((Math.abs(e - s) || GANTT_DAY_MS) / span) * 100, 0.8)
-              : 0;
-            const kind = row.item_type ?? "task";
-            const progress = Math.min(100, Math.max(0, row.clickup_progress_pct ?? 0));
-            const isMilestone = kind === "milestone";
-            const depth = row.depth ?? (row.parent_id ? 1 : 0);
-            const isChild =
-              kind === "subtask" ||
-              (depth >= 2 && kind !== "phase") ||
-              (!!row.parent_clickup_task_id && kind !== "phase");
-            const labelClass =
-              kind === "phase"
-                ? "timeline-gantt-pro__label timeline-gantt-pro__label--phase"
-                : isChild
-                  ? "timeline-gantt-pro__label timeline-gantt-pro__label--child"
-                  : "timeline-gantt-pro__label timeline-gantt-pro__label--task";
-            return (
-              <Fragment key={row.clickup_only ? `cu-${row.clickup_task_id}` : row.id}>
-                <div
-                  className={`${labelClass} timeline-gantt-pro__label-wrap`}
-                  style={{ paddingLeft: `${0.35 + depth * 1.05}rem` }}
-                >
-                  {kind === "phase" && onTogglePhase && (
-                    <button
-                      type="button"
-                      className="tree-toggle"
-                      aria-label={collapsedPhases?.has(row.id) ? "Expand phase" : "Collapse phase"}
-                      onClick={() => onTogglePhase(row.id)}
-                    >
-                      {collapsedPhases?.has(row.id) ? "▸" : "▾"}
-                    </button>
-                  )}
-                  {row.expandable && row.clickup_task_id && kind !== "phase" && onToggleCu && (
-                    <button
-                      type="button"
-                      className="tree-toggle"
-                      aria-label="Expand task"
-                      onClick={() => onToggleCu(row.clickup_task_id!)}
-                    >
-                      {collapsedCu?.has(row.clickup_task_id!) ? "▸" : "▾"}
-                    </button>
-                  )}
-                  {isChild ? <span className="timeline-gantt-pro__tree" aria-hidden /> : null}
-                  <TruncatedText
-                    text={row.name}
-                    title={milestoneDisplayTooltip(row)}
-                    href={row.clickup_url ?? undefined}
-                    target="_blank"
-                    rel="noreferrer"
-                  />
-                  {row.clickup_only && (
-                    <span className="timeline-gantt-pro__cu-tag">ClickUp</span>
-                  )}
-                </div>
-                <div className="timeline-gantt-pro__track">
-                  {weekTicks.map((t) => (
-                    <div
-                      key={`${row.id}-${t}`}
-                      className="timeline-gantt-pro__gridline"
-                      style={{ left: `${((t - min) / span) * 100}%` }}
-                    />
-                  ))}
-                  {showToday && (
-                    <div
-                      className="timeline-gantt-pro__today-line timeline-gantt-pro__today-line--row"
-                      style={{ left: `${todayLeft}%` }}
-                    />
-                  )}
-                  {!hasBaseline && !isMilestone ? (
-                    <span className="timeline-gantt-pro__no-baseline" title="Tanpa baseline PDC">
-                      —
-                    </span>
-                  ) : isMilestone && hasBaseline ? (
-                    <div
-                      className={`timeline-gantt-pro__diamond timeline-gantt-pro__diamond--${
-                        progress >= 100 ? "done" : "open"
-                      }`}
-                      style={{ left: `calc(${left + width / 2}% - 6px)` }}
-                      title={milestoneDisplayTooltip(row)}
-                    />
-                  ) : hasBaseline ? (
-                    <div
-                      className={`timeline-gantt-pro__bar-wrap timeline-gantt-pro__bar-wrap--${kind}`}
-                      style={{ left: `${left}%`, width: `${width}%` }}
-                      title={milestoneDisplayTooltip(row)}
-                    >
-                      <div className="timeline-gantt-pro__bar-bg" />
-                      <div
-                        className="timeline-gantt-pro__bar-fill"
-                        style={{ width: `${progress}%` }}
-                      />
-                      {progress > 0 && progress < 100 && (
-                        <span className="timeline-gantt-pro__bar-pct">{progress}%</span>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              </Fragment>
-            );
-          })}
-        </div>
-      </div>
-    </section>
-  );
-}
-
 type ProposedPhaseRow = {
   name: string;
   start_date: string;
@@ -2438,48 +2127,6 @@ function MilestonesTab({
     }
   };
 
-  const [collapsedPhases, setCollapsedPhases] = useState<Set<number>>(new Set());
-  const [collapsedCu, setCollapsedCu] = useState<Set<string>>(new Set());
-
-  const timelineSortKey = (m: MilestoneRow) =>
-    m.timeline_seq ?? m.sort_order ?? (m.id > 0 ? m.id : -m.id + 1_000_000);
-
-  const orderedItems = useMemo(
-    () => [...items].sort((a, b) => timelineSortKey(a) - timelineSortKey(b)),
-    [items],
-  );
-
-  const visibleItems = useMemo(() => {
-    return orderedItems.filter((m) => {
-      const phaseId = m.item_type === "phase" ? m.id : m.phase_id ?? null;
-      if (phaseId != null && collapsedPhases.has(phaseId) && m.item_type !== "phase") {
-        return false;
-      }
-      if (m.parent_clickup_task_id && collapsedCu.has(m.parent_clickup_task_id)) {
-        return false;
-      }
-      return true;
-    });
-  }, [orderedItems, collapsedPhases, collapsedCu]);
-
-  const togglePhase = (phaseId: number) => {
-    setCollapsedPhases((prev) => {
-      const next = new Set(prev);
-      if (next.has(phaseId)) next.delete(phaseId);
-      else next.add(phaseId);
-      return next;
-    });
-  };
-
-  const toggleCu = (clickupTaskId: string) => {
-    setCollapsedCu((prev) => {
-      const next = new Set(prev);
-      if (next.has(clickupTaskId)) next.delete(clickupTaskId);
-      else next.add(clickupTaskId);
-      return next;
-    });
-  };
-
   const addMilestone = async (e: FormEvent) => {
     e.preventDefault();
     if (!newRow.name.trim()) return;
@@ -2608,146 +2255,29 @@ function MilestonesTab({
       {items.length === 0 ? (
         <p className="text-muted">Belum ada timeline terkonfirmasi.</p>
       ) : (
-        <>
-        <TimelineGantt
-          rows={visibleItems}
-          rangeRows={orderedItems}
-          collapsedPhases={collapsedPhases}
-          collapsedCu={collapsedCu}
-          onTogglePhase={togglePhase}
-          onToggleCu={toggleCu}
-        />
-        <div
-          className={`timeline-detail-unified timeline-detail-unified--loose${canWriteStructure ? " timeline-detail-unified--actions" : ""}`}
-        >
-          <div className="timeline-detail-grid timeline-detail-grid--head" role="row">
-            <span>Nama</span>
-            <span>Modul</span>
-            <span>Mulai</span>
-            <span>Target</span>
-            <span>Durasi</span>
-            <span>Bobot %</span>
-            <span>Tipe</span>
-            <span>Progress</span>
-            <span>Status</span>
-            <span>Due ClickUp</span>
-            <span>Milestone bayar</span>
-            {canWriteStructure && <span>Aksi</span>}
-          </div>
-          {visibleItems.map((m) => {
-            const depth = m.depth ?? (m.parent_id ? 1 : 0);
-            const isChild =
-              m.item_type === "subtask" ||
-              depth >= 2 ||
-              (!!m.parent_clickup_task_id && m.item_type !== "phase");
-            const rowClass = [
-              "timeline-detail-grid",
-              "timeline-detail-grid--row",
-              m.item_type === "phase" ? "timeline-detail-grid--phase" : "",
-              m.clickup_only ? "timeline-row--clickup-only" : "",
-              isChild ? "timeline-detail-grid--child" : "",
-            ]
-              .filter(Boolean)
-              .join(" ");
+        <MilestonesLiveTimeline
+          projectId={projectId}
+          items={items}
+          canWriteStructure={canWriteStructure}
+          onReload={load}
+          onRemove={removeMilestone}
+          renderLiveMeta={(m, row) => {
             const scheduleAnomalyTip =
               (m.schedule_anomalies?.length ?? 0) > 0
                 ? m.schedule_anomalies!.join("\n")
                 : undefined;
             return (
-              <div
-                key={m.clickup_only ? `cu-${m.clickup_task_id}` : m.id}
-                className={`${rowClass}${scheduleAnomalyTip ? " timeline-detail-grid--anomaly" : ""}`}
-                role="row"
-              >
-                <div
-                  className="timeline-detail-name cell-truncate-wrap"
-                  style={{ paddingLeft: `${0.35 + depth * 1.2}rem` }}
-                >
-                  {m.item_type === "phase" && (
-                    <button
-                      type="button"
-                      className="tree-toggle"
-                      aria-label={collapsedPhases.has(m.id) ? "Expand phase" : "Collapse phase"}
-                      onClick={() => togglePhase(m.id)}
-                    >
-                      {collapsedPhases.has(m.id) ? "▸" : "▾"}
-                    </button>
-                  )}
-                  {m.expandable && m.clickup_task_id && m.item_type !== "phase" && (
-                    <button
-                      type="button"
-                      className="tree-toggle"
-                      aria-label="Expand task"
-                      onClick={() => toggleCu(m.clickup_task_id!)}
-                    >
-                      {collapsedCu.has(m.clickup_task_id!) ? "▸" : "▾"}
-                    </button>
-                  )}
-                  {isChild && <span className="task-recap-tree" aria-hidden />}
-                  {canWriteStructure && !m.clickup_only && m.id > 0 ? (
-                    <input
-                      className="sph-inline-input"
-                      defaultValue={m.name}
-                      onBlur={async (e) => {
-                        if (e.target.value.trim() === m.name) return;
-                        await api(`/projects/${projectId}/milestones/${m.id}`, {
-                          method: "PATCH",
-                          body: JSON.stringify({ name: e.target.value.trim() }),
-                        });
-                        load();
-                      }}
-                    />
-                  ) : (
-                    <TruncatedText
-                      text={m.name}
-                      title={milestoneDisplayTooltip(m)}
-                      href={m.clickup_url ?? undefined}
-                      target="_blank"
-                      rel="noreferrer"
-                    />
-                  )}
-                  {scheduleAnomalyTip && (
-                    <span
-                      className="timeline-schedule-anomaly-icon"
-                      title={scheduleAnomalyTip}
-                      aria-label="Anomali jadwal parent/anak"
-                    >
-                      ⚠
-                    </span>
-                  )}
-                  {m.clickup_only && <span className="timeline-gantt-pro__cu-tag">ClickUp</span>}
-                </div>
-                <div className="cell-truncate-wrap">
-                  <TruncatedText
-                    text={m.module?.trim() ? m.module : "—"}
-                    title={m.module?.trim() ? `Modul: ${m.module}` : undefined}
-                  />
-                </div>
-                <div
-                  className={`timeline-detail-date${scheduleAnomalyTip ? " timeline-detail-date--anomaly" : ""}`}
-                  title={scheduleAnomalyTip}
-                >
-                  {formatDisplayDate(m.start_date)}
-                </div>
-                <div
-                  className={`timeline-detail-date${scheduleAnomalyTip ? " timeline-detail-date--anomaly" : ""}`}
-                  title={scheduleAnomalyTip}
-                >
-                  {formatDisplayDate(m.target_date)}
+              <div className="te-live-meta-grid">
+                <div>
+                  <span className="te-live-meta-label">Modul</span>
+                  {m.module?.trim() ? m.module : "—"}
                 </div>
                 <div>
-                  {m.display_duration_days != null
-                    ? m.display_duration_days
-                    : m.duration_days != null
-                      ? m.duration_days
-                      : "—"}
-                </div>
-                <div>{m.weight_pct}</div>
-                <div>{itemTypePill(m.item_type)}</div>
-                <div>
+                  <span className="te-live-meta-label">Progress</span>
                   <ProgressBar pct={m.clickup_progress_pct} />
                 </div>
                 <div>
+                  <span className="te-live-meta-label">Status</span>
                   {m.clickup_status ? (
                     m.item_type === "phase" ? (
                       <span
@@ -2764,14 +2294,16 @@ function MilestonesTab({
                     )
                   ) : m.clickup_task_id ? (
                     <span className="text-muted">Belum sync</span>
-                  ) : m.item_type === "phase" ? (
-                    <span className="phase-status phase-status--not-started">NOT STARTED</span>
                   ) : (
                     "—"
                   )}
                 </div>
-                <div className="timeline-detail-date">{formatDisplayDate(m.clickup_due_date)}</div>
                 <div>
+                  <span className="te-live-meta-label">Due ClickUp</span>
+                  {formatDisplayDate(m.clickup_due_date)}
+                </div>
+                <div>
+                  <span className="te-live-meta-label">Termin</span>
                   {canWriteStructure && !m.clickup_only && m.id > 0 ? (
                     <label>
                       <input
@@ -2779,7 +2311,7 @@ function MilestonesTab({
                         checked={!!m.is_payment_milestone}
                         onChange={() => togglePaymentMilestone(m)}
                       />{" "}
-                      Termin
+                      Milestone bayar
                     </label>
                   ) : m.is_payment_milestone ? (
                     "Ya"
@@ -2787,26 +2319,29 @@ function MilestonesTab({
                     "—"
                   )}
                 </div>
-                {canWriteStructure && (
-                  <div>
-                    {!m.clickup_only && m.id > 0 ? (
-                      <button
-                        type="button"
-                        className="danger-link"
-                        onClick={() => removeMilestone(m.id, m.name)}
-                      >
-                        Hapus
-                      </button>
-                    ) : (
-                      "—"
-                    )}
+                <div>
+                  {canWriteStructure && !m.clickup_only && m.id > 0 && !row.live?.evm_locked ? (
+                    <button
+                      type="button"
+                      className="danger-link"
+                      onClick={() => removeMilestone(m.id, m.name)}
+                    >
+                      Hapus
+                    </button>
+                  ) : null}
+                </div>
+                {scheduleAnomalyTip ? (
+                  <div className="te-live-meta-anomaly" title={scheduleAnomalyTip}>
+                    ⚠ {scheduleAnomalyTip}
                   </div>
-                )}
+                ) : null}
+                {m.clickup_only ? (
+                  <span className="timeline-gantt-pro__cu-tag">ClickUp only</span>
+                ) : null}
               </div>
             );
-          })}
-        </div>
-        </>
+          }}
+        />
       )}
       <div style={{ marginTop: "1.5rem" }} className="card">
         <h3 className="card-title">Rebaseline schedule</h3>

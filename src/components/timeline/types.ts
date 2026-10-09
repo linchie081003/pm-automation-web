@@ -4,6 +4,29 @@ export type TimelineEditorPredecessor = {
   lag_days: number;
 };
 
+export type TimelineEditorLiveMeta = {
+  milestone_id?: number;
+  module?: string | null;
+  status?: string;
+  clickup_task_id?: string | null;
+  clickup_name?: string | null;
+  clickup_status?: string | null;
+  clickup_status_raw?: string | null;
+  clickup_url?: string | null;
+  clickup_due_date?: string | null;
+  clickup_progress_pct?: number | null;
+  clickup_only?: boolean;
+  is_payment_milestone?: boolean;
+  schedule_anomalies?: string[];
+  depth?: number;
+  phase_id?: number | null;
+  phase_status?: string | null;
+  expandable?: boolean;
+  parent_clickup_task_id?: string | null;
+  /** Fase done / closed — bobot & tanggal terkunci (EVM). */
+  evm_locked?: boolean;
+};
+
 export type TimelineEditorRow = {
   id?: number | null;
   row_key?: string | null;
@@ -20,7 +43,11 @@ export type TimelineEditorRow = {
   predecessor_link_type?: string | null;
   schedule_driver?: "duration" | "start" | "end" | "milestone" | null;
   predecessors: TimelineEditorPredecessor[];
+  /** Set when row represents live milestone (Timeline tab). */
+  live?: TimelineEditorLiveMeta;
 };
+
+export type TimelineEditorRowLock = { locked: boolean; reason?: string };
 
 export type TimelineEditorSnapshot = {
   project_id: number;

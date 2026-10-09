@@ -35,7 +35,7 @@ export function validateTimelineItems(items: TimelineItemInput[]): string | null
     }
   }
 
-  for (const [k, it] of nodes) {
+  for (const it of nodes.values()) {
     const t = normType(it.item_type);
     const pk = it.parent_key?.trim();
     const parent = pk ? nodes.get(pk) : null;

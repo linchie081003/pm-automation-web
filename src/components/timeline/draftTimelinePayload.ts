@@ -17,6 +17,7 @@ export type DraftTimelinePayloadRow = {
   predecessor_link_type?: string | null;
   schedule_driver?: "duration" | "start" | "end" | null;
   predecessors?: TimelineEditorPredecessor[];
+  notes?: string | null;
 };
 
 export function normalizeDraftPredecessors(row: DraftTimelinePayloadRow): TimelineEditorPredecessor[] {
