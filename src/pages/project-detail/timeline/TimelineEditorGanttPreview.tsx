@@ -1,5 +1,6 @@
 import { Fragment, useMemo } from "react";
 import { formatDisplayDate, formatDisplayDateFromMs } from "../../../lib/formatDate";
+import { buildGanttTimeScale, ganttLeftPercent } from "./ganttTimeScale";
 import { rowDepthByParent } from "./timelineEditorUi";
 import type { TimelineEditorRow } from "./types";
 
@@ -11,15 +12,6 @@ function parseTimelineMs(raw: string | null | undefined): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
-function startOfWeekMs(ms: number): number {
-  const d = new Date(ms);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
 type Props = {
   rows: TimelineEditorRow[];
   visibleIndices: number[];
@@ -28,6 +20,8 @@ type Props = {
   collapsedRefs: Set<string>;
   onToggleCollapse: (ref: string) => void;
   busy?: boolean;
+  /** Legend hint on the right (default: sandbox preview). */
+  legendNote?: string;
 };
 
 export function TimelineEditorGanttPreview({
@@ -38,6 +32,7 @@ export function TimelineEditorGanttPreview({
   collapsedRefs,
   onToggleCollapse,
   busy,
+  legendNote = "Preview sandbox (tanpa progress ClickUp)",
 }: Props) {
   const sortedIndices = useMemo(
     () =>
@@ -63,16 +58,10 @@ export function TimelineEditorGanttPreview({
     return { min, max, span: Math.max(max - min, GANTT_DAY_MS) };
   }, [rows]);
 
-  const weekTicks = useMemo(() => {
-    if (!range) return [];
-    const ticks: number[] = [];
-    let cur = startOfWeekMs(range.min);
-    while (cur <= range.max + GANTT_DAY_MS) {
-      ticks.push(cur);
-      cur += 7 * GANTT_DAY_MS;
-    }
-    return ticks;
-  }, [range]);
+  const timeScale = useMemo(
+    () => (range ? buildGanttTimeScale(range.min, range.max, range.span) : null),
+    [range],
+  );
 
   if (!rows.length) {
     return (
@@ -80,7 +69,7 @@ export function TimelineEditorGanttPreview({
     );
   }
 
-  if (!range) {
+  if (!range || !timeScale) {
     return (
       <p className="text-muted gantt-empty">
         {busy
@@ -91,6 +80,7 @@ export function TimelineEditorGanttPreview({
   }
 
   const { min, max, span } = range;
+  const { trackMinWidthPx, gridLineMs, labeledTicks } = timeScale;
   const fmt = (ms: number) => formatDisplayDateFromMs(ms);
   const todayMs = new Date().setHours(0, 0, 0, 0);
   const showToday = todayMs >= min && todayMs <= max;
@@ -113,23 +103,34 @@ export function TimelineEditorGanttPreview({
             <i className="timeline-gantt-pro__swatch timeline-gantt-pro__swatch--milestone" />{" "}
             Milestone
           </span>
-          <span className="text-muted">Preview sandbox (tanpa progress ClickUp)</span>
+          <span className="text-muted">{legendNote}</span>
         </div>
       </div>
       <div className="timeline-gantt-pro__scroll">
         <div
           className="timeline-gantt-pro__grid"
-          style={{ gridTemplateColumns: "minmax(12.5rem, 30%) 1fr" }}
+          style={{
+            gridTemplateColumns: `minmax(12.5rem, 28%) minmax(${trackMinWidthPx}px, 1fr)`,
+          }}
         >
           <div className="timeline-gantt-pro__head-corner">Timeline</div>
           <div className="timeline-gantt-pro__head-track">
-            {weekTicks.map((t) => (
+            {gridLineMs.map((t) => (
               <div
-                key={t}
+                key={`grid-${t}`}
+                className="timeline-gantt-pro__head-gridline"
+                style={{ left: `${ganttLeftPercent(t, min, span)}%` }}
+                aria-hidden
+              />
+            ))}
+            {labeledTicks.map(({ ms, label }) => (
+              <div
+                key={`label-${ms}`}
                 className="timeline-gantt-pro__tick"
-                style={{ left: `${((t - min) / span) * 100}%` }}
+                style={{ left: `${ganttLeftPercent(ms, min, span)}%` }}
+                title={fmt(ms)}
               >
-                {fmt(t)}
+                {label}
               </div>
             ))}
             {showToday ? (
@@ -190,11 +191,11 @@ export function TimelineEditorGanttPreview({
                   <span className="cell-truncate">{row.name || rowKey}</span>
                 </div>
                 <div className="timeline-gantt-pro__track">
-                  {weekTicks.map((t) => (
+                  {gridLineMs.map((t) => (
                     <div
                       key={`${rowKey}-${t}`}
                       className="timeline-gantt-pro__gridline"
-                      style={{ left: `${((t - min) / span) * 100}%` }}
+                      style={{ left: `${ganttLeftPercent(t, min, span)}%` }}
                     />
                   ))}
                   {showToday ? (

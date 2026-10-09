@@ -36,6 +36,8 @@ type ItemProps = {
   lockReason?: string;
   variant: "editor" | "live";
   renderLiveMetaRow?: () => ReactNode;
+  showNotesColumn?: boolean;
+  alwaysShowPredecessorRow?: boolean;
 };
 
 function TimelineEditorItemRows({
@@ -61,11 +63,13 @@ function TimelineEditorItemRows({
   lockReason,
   variant,
   renderLiveMetaRow,
+  showNotesColumn,
+  alwaysShowPredecessorRow,
 }: ItemProps) {
   const options = predOptions.filter(
     (o) => (o.item_type || "").toLowerCase() !== "milestone",
   );
-  const colSpan = 9;
+  const colSpan = showNotesColumn ? 10 : 9;
   const isLive = variant === "live";
   const scheduleLocked = locked || isLive;
   const nameLocked = locked || (isLive && !!row.live?.clickup_only);
@@ -324,9 +328,25 @@ function TimelineEditorItemRows({
             <span className="te-cell-muted">—</span>
           )}
         </td>
+        {showNotesColumn ? (
+          <td className="te-table__col-notes">
+            {locked ? (
+              <span className="te-cell-muted">{row.notes?.trim() ? row.notes : "—"}</span>
+            ) : (
+              <input
+                className="te-ctl te-ctl--text te-ctl--table te-ctl--notes"
+                value={row.notes ?? ""}
+                placeholder="Opsional"
+                aria-label="Catatan"
+                onChange={(e) => onPatch({ notes: e.target.value })}
+              />
+            )}
+          </td>
+        ) : null}
       </tr>
 
-      {!isMilestone && (row.predecessors?.length ?? 0) > 0 ? (
+      {!isMilestone &&
+      (alwaysShowPredecessorRow || (row.predecessors?.length ?? 0) > 0) ? (
         <tr className="te-table__row te-table__row--pred">
           <td colSpan={colSpan} className="te-table__pred-cell">
             <TimelinePredecessorsDetails
@@ -367,6 +387,8 @@ export type TimelineEditorTableProps = {
   variant?: "editor" | "live";
   rowLock?: (row: TimelineEditorRow) => TimelineEditorRowLock;
   renderLiveMetaRow?: (row: TimelineEditorRow) => ReactNode;
+  showNotesColumn?: boolean;
+  alwaysShowPredecessorRow?: boolean;
 };
 
 export function TimelineEditorTable({
@@ -387,6 +409,8 @@ export function TimelineEditorTable({
   variant = "editor",
   rowLock,
   renderLiveMetaRow,
+  showNotesColumn = false,
+  alwaysShowPredecessorRow = false,
 }: TimelineEditorTableProps) {
   return (
     <div className="table-scroll te-table-scroll">
@@ -401,6 +425,7 @@ export function TimelineEditorTable({
           <col className="te-col-date" />
           <col className="te-col-date" />
           <col className="te-col-action" />
+          {showNotesColumn ? <col className="te-col-notes" /> : null}
         </colgroup>
         <thead>
           <tr>
@@ -413,6 +438,7 @@ export function TimelineEditorTable({
             <th scope="col">Mulai</th>
             <th scope="col">Selesai</th>
             <th scope="col">Aksi</th>
+            {showNotesColumn ? <th scope="col">Catatan</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -451,6 +477,8 @@ export function TimelineEditorTable({
                 renderLiveMetaRow={
                   renderLiveMetaRow ? () => renderLiveMetaRow(row) : undefined
                 }
+                showNotesColumn={showNotesColumn}
+                alwaysShowPredecessorRow={alwaysShowPredecessorRow}
               />
             );
           })}

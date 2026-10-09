@@ -748,6 +748,11 @@ button.danger-link:hover {
   width: 6.75rem;
 }
 
+.te-col-notes {
+  width: 12%;
+  min-width: 8rem;
+}
+
 .te-table__live-meta-cell {
   padding: 0.35rem 0.5rem 0.65rem;
   background: var(--surface-muted, #f8fafc);
@@ -2841,21 +2846,37 @@ table.po-table .po-col-actions {
 
 .timeline-gantt-pro__head-track {
   position: relative;
-  height: 2rem;
+  height: 2.5rem;
+  min-height: 2.5rem;
   background: var(--color-page-bg);
   border-bottom: 1px solid var(--color-border-light);
+}
+
+.timeline-gantt-pro__head-gridline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px solid var(--color-border-light);
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 .timeline-gantt-pro__tick {
   position: absolute;
   top: 0;
-  bottom: 0;
-  padding: 0.35rem 0 0 0.25rem;
-  font-size: 0.65rem;
-  color: var(--color-muted);
-  border-left: 1px solid var(--color-border-light);
+  transform: translateX(-50%);
+  padding: 0.45rem 0.15rem 0;
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
   white-space: nowrap;
   pointer-events: none;
+  max-width: 5.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  line-height: 1.15;
 }
 
 .timeline-gantt-pro__label {

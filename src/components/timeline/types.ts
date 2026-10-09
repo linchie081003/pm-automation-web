@@ -43,6 +43,8 @@ export type TimelineEditorRow = {
   predecessor_link_type?: string | null;
   schedule_driver?: "duration" | "start" | "end" | "milestone" | null;
   predecessors: TimelineEditorPredecessor[];
+  /** SPH draft row notes (editable, not stored on live milestones). */
+  notes?: string | null;
   /** Set when row represents live milestone (Timeline tab). */
   live?: TimelineEditorLiveMeta;
 };

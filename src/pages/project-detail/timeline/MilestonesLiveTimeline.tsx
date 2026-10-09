@@ -168,6 +168,7 @@ export function MilestonesLiveTimeline({
               if (Number.isFinite(id)) togglePhaseCollapse(id);
             } else toggleTreeCollapse(ref);
           }}
+          legendNote="Timeline live — progress ClickUp di baris meta grid"
         />
       </section>
 
