@@ -34,13 +34,11 @@ export function TimelineEditorGanttPreview({
   busy,
   legendNote = "Preview sandbox (tanpa progress ClickUp)",
 }: Props) {
-  const sortedIndices = useMemo(
-    () =>
-      [...visibleIndices].sort(
-        (a, b) => (rows[a].sort_order ?? a) - (rows[b].sort_order ?? b),
-      ),
-    [visibleIndices, rows],
-  );
+  // `visibleIndices` sudah dalam urutan tampilan yang benar (DFS per-phase →
+  // task → subtask, lihat `milestoneRowsToEditorRows` / editor sandbox).
+  // JANGAN sort ulang pakai `row.sort_order` — nilai itu per-sibling (reset
+  // tiap level), bukan urutan global, dan akan mengacak urutan antar phase/task.
+  const sortedIndices = visibleIndices;
 
   const range = useMemo(() => {
     let min = Infinity;
