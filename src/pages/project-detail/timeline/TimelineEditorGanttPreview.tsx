@@ -100,6 +100,9 @@ export function TimelineEditorGanttPreview({
             <i className="timeline-gantt-pro__swatch timeline-gantt-pro__swatch--task" /> Task
           </span>
           <span>
+            <i className="timeline-gantt-pro__swatch timeline-gantt-pro__swatch--subtask" /> Subtask
+          </span>
+          <span>
             <i className="timeline-gantt-pro__swatch timeline-gantt-pro__swatch--milestone" />{" "}
             Milestone
           </span>
@@ -221,7 +224,17 @@ export function TimelineEditorGanttPreview({
                       title={tip}
                     >
                       <div className="timeline-gantt-pro__bar-bg" />
-                      <div className="timeline-gantt-pro__bar-fill" style={{ width: "0%" }} />
+                      <div
+                        className="timeline-gantt-pro__bar-fill"
+                        style={{
+                          width: `${Math.min(Math.max(row.live?.clickup_progress_pct ?? 0, 0), 100)}%`,
+                        }}
+                      />
+                      {row.live?.clickup_progress_pct != null ? (
+                        <span className="timeline-gantt-pro__bar-pct">
+                          {Math.round(row.live.clickup_progress_pct)}%
+                        </span>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

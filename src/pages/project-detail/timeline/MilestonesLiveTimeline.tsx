@@ -140,7 +140,9 @@ export function MilestonesLiveTimeline({
         <div className="timeline-editor__panel-head timeline-editor__panel-head--split">
           <div>
             <h3 className="ui-section__title">Timeline (Gantt)</h3>
-            <p className="ui-section__desc">Jadwal live — baseline Kick Off + progress ClickUp di baris meta.</p>
+            <p className="ui-section__desc">
+              Jadwal live — baseline Kick Off; progress ClickUp di batang Gantt.
+            </p>
           </div>
           {parentChildRefs.size > 0 ? (
             <div className="te-tree-toolbar btn-group">
@@ -168,7 +170,7 @@ export function MilestonesLiveTimeline({
               if (Number.isFinite(id)) togglePhaseCollapse(id);
             } else toggleTreeCollapse(ref);
           }}
-          legendNote="Timeline live — progress ClickUp di baris meta grid"
+          legendNote="Timeline live — progress ClickUp dari sync terakhir"
         />
       </section>
 
