@@ -188,7 +188,11 @@ function TimelineEditorItemRows({
         </td>
         <td className="te-table__col-parent">
           {scheduleLocked ? (
-            <span className="te-cell-muted">{row.parent_ref ?? "Root"}</span>
+            <span className="te-cell-muted">
+              {row.parent_ref
+                ? (parentOptions.find((o) => o.ref === row.parent_ref)?.label ?? row.parent_ref)
+                : "Root"}
+            </span>
           ) : (
           <select
             className="te-ctl te-ctl--parent te-ctl--table"

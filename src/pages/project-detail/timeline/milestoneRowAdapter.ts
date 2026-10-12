@@ -35,6 +35,11 @@ export function milestoneRowsToEditorRows(rows: MilestoneRow[]): TimelineEditorR
       (b.timeline_seq ?? b.sort_order ?? (b.id > 0 ? b.id : -b.id + 1_000_000)),
   );
 
+  const taskIdToRowKey = new Map<string, string>();
+  for (const m of sorted) {
+    if (m.clickup_task_id) taskIdToRowKey.set(m.clickup_task_id, liveMilestoneRowRef(m));
+  }
+
   return sorted.map((m, idx) => {
     const preds = (m.live_predecessors ?? []).map(livePredToEditor);
     const first = preds[0];
@@ -42,8 +47,11 @@ export function milestoneRowsToEditorRows(rows: MilestoneRow[]): TimelineEditorR
       m.display_duration_days ??
       m.duration_days ??
       (m.item_type === "milestone" ? 0 : 1);
-    const parentRef =
-      m.parent_id != null && m.parent_id > 0 ? `m:${m.parent_id}` : null;
+    const parentRef = m.parent_clickup_task_id
+      ? (taskIdToRowKey.get(m.parent_clickup_task_id) ?? null)
+      : m.parent_id != null && m.parent_id > 0
+        ? `m:${m.parent_id}`
+        : null;
 
     return {
       row_key: liveMilestoneRowRef(m),
